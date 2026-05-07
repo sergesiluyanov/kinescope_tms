@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import Field, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,9 +25,10 @@ class Settings(BaseSettings):
 
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
-    cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:5173"], alias="CORS_ORIGINS"
-    )
+    # Храним как строку: "*" или CSV ("http://a, http://b").
+    # pydantic-settings v2 парсит list[...] как JSON, поэтому забираем сырое значение
+    # и собственноручно разбиваем в свойстве cors_origins.
+    cors_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
 
     allowed_email_domain: str = Field(default="kinescope.io", alias="ALLOWED_EMAIL_DOMAIN")
     jwt_secret: str = Field(default="dev-secret-change-me", alias="JWT_SECRET")
@@ -40,12 +41,13 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _split_cors(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+    @property
+    def cors_origins(self) -> list[str]:
+        """CORS_ORIGINS из env: либо "*", либо список через запятую."""
+        raw = self.cors_origins_raw.strip()
+        if raw == "*":
+            return ["*"]
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 @lru_cache(maxsize=1)
