@@ -15,8 +15,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Postgres намеренно НЕ публикуется наружу. Доступ к нему только из docker-сети.
+    # Если очень нужно подключиться с хоста, используйте `docker compose exec postgres psql`
+    # или временно раскомментируйте секцию ports ниже.
+    # ports:
+    #   - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
   api:
     build:
