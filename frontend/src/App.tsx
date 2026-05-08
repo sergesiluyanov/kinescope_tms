@@ -5,6 +5,8 @@ import { AuthProvider } from './auth/AuthContext';
 import RequireAuth from './auth/RequireAuth';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
+import ProjectsPage from './pages/ProjectsPage';
 import RegisterPage from './pages/RegisterPage';
 
 export default function App() {
@@ -22,6 +24,8 @@ export default function App() {
           }
         >
           <Route path="/" element={<HomePage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -51,9 +51,21 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-medium text-slate-900">Что дальше</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          Заведи проект и начни складывать в него разделы и тест-кейсы.
+        </p>
+        <a
+          href="/projects"
+          className="mt-4 inline-flex items-center rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-dark"
+        >
+          Перейти к проектам →
+        </a>
+      </section>
+
       <section className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-        Следующие шаги: проекты и разделы, тест-кейсы, баг-репорты,
-        интеграция с Kaiten.
+        Скоро: баг-репорты и интеграция с Kaiten.
       </section>
     </main>
   );

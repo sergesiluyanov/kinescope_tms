@@ -79,6 +79,11 @@ def require_admin():
     return require_roles(UserRole.admin)
 
 
+def require_qa_or_higher():
+    """Базовая запись/редактирование: qa, qa_lead, admin (но не viewer)."""
+    return require_roles(UserRole.qa, UserRole.qa_lead, UserRole.admin)
+
+
 def has_any_role(user: User, roles: Iterable[UserRole]) -> bool:
     """Утилита для ручных проверок внутри хэндлеров."""
     return user.role in {role.value for role in roles}
