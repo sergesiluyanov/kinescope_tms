@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=60, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=14, alias="REFRESH_TOKEN_EXPIRE_DAYS")
+    # Email-адреса (через запятую), которые при регистрации сразу получают роль admin.
+    admin_emails_raw: str = Field(default="", alias="ADMIN_EMAILS")
+    refresh_cookie_name: str = Field(default="tms_refresh", alias="REFRESH_COOKIE_NAME")
+    # Включать ТОЛЬКО когда сайт реально отдаётся по HTTPS, иначе браузер не
+    # сохранит cookie и refresh перестанет работать. По умолчанию выключено.
+    cookie_secure: bool = Field(default=False, alias="COOKIE_SECURE")
 
     database_url: PostgresDsn = Field(
         default="postgresql+asyncpg://tms:tms@localhost:5432/kinescope_tms",
@@ -48,6 +54,19 @@ class Settings(BaseSettings):
         if raw == "*":
             return ["*"]
         return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @property
+    def admin_emails(self) -> set[str]:
+        """ADMIN_EMAILS из env: список email'ов через запятую, нормализованный."""
+        return {
+            item.strip().lower()
+            for item in self.admin_emails_raw.split(",")
+            if item.strip()
+        }
+
+    @property
+    def is_production(self) -> bool:
+        return self.env == "production"
 
 
 @lru_cache(maxsize=1)

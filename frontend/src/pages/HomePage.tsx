@@ -1,20 +1,25 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchReadiness } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 
 export default function HomePage() {
+  const { user } = useAuth();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['health', 'ready'],
     queryFn: fetchReadiness,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   return (
-    <main className="mx-auto flex min-h-full max-w-3xl flex-col gap-8 px-6 py-16">
+    <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
       <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Kinescope TMS</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Привет, {user?.full_name ?? user?.email.split('@')[0]} 👋
+        </h1>
         <p className="mt-2 text-slate-500">
-          Корпоративная система управления тестированием. Скелет проекта запущен.
+          Корпоративная система управления тестированием. Тестовая документация,
+          баг-репорты и интеграция с Kaiten — впереди.
         </p>
       </header>
 
@@ -47,8 +52,8 @@ export default function HomePage() {
       </section>
 
       <section className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-        Следующие шаги: авторизация по корпоративной почте, разделы и тест-кейсы,
-        баг-репорты, интеграция с Kaiten.
+        Следующие шаги: проекты и разделы, тест-кейсы, баг-репорты,
+        интеграция с Kaiten.
       </section>
     </main>
   );

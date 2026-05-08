@@ -142,7 +142,7 @@ make psql                       # psql в контейнере postgres
 
 - [x] Скелет проекта: FastAPI + Postgres + Alembic + React/Vite + docker-compose
 - [x] Prod-конфиг: фронт за nginx, API/Postgres во внутренней сети
-- [ ] Авторизация: регистрация по `@kinescope.io`, логин, JWT, роли
+- [x] Авторизация: регистрация по `@kinescope.io`, логин (JWT access + refresh), роли (admin/qa_lead/qa/viewer)
 - [ ] Проекты и разделы (древовидная навигация)
 - [ ] Тест-кейсы (шаги, ожидаемый результат, приоритет, теги, версии)
 - [ ] Тест-раны и прогоны
