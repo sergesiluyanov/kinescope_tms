@@ -5,6 +5,12 @@ from app.models.bug import Bug, BugPriority, BugSeverity, BugStatus
 from app.models.project import Project
 from app.models.section import Section
 from app.models.test_case import TestCase, TestCasePriority, TestCaseStatus
+from app.models.test_run import (
+    TestRun,
+    TestRunItem,
+    TestRunItemStatus,
+    TestRunStatus,
+)
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -18,6 +24,10 @@ __all__ = [
     "TestCase",
     "TestCasePriority",
     "TestCaseStatus",
+    "TestRun",
+    "TestRunItem",
+    "TestRunItemStatus",
+    "TestRunStatus",
     "User",
     "UserRole",
 ]

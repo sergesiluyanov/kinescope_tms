@@ -34,6 +34,7 @@ export default function ProjectLayout() {
 
       <nav className="mb-6 flex gap-1 border-b border-slate-200">
         <TabLink to={`/projects/${projectId}/cases`}>Тест-кейсы</TabLink>
+        <TabLink to={`/projects/${projectId}/runs`}>Прогоны</TabLink>
         <TabLink to={`/projects/${projectId}/bugs`}>Баги</TabLink>
       </nav>
 

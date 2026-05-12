@@ -36,7 +36,7 @@ export interface BugFormValues {
 interface BugFormDialogProps {
   open: boolean;
   mode: 'create' | 'edit';
-  initial?: Bug | null;
+  initial?: Partial<Bug> | null;
   users: User[];
   submitting?: boolean;
   error?: string | null;
@@ -44,7 +44,7 @@ interface BugFormDialogProps {
   onSubmit: (payload: BugCreatePayload) => void;
 }
 
-function defaults(initial: Bug | null | undefined): BugFormValues {
+function defaults(initial: Partial<Bug> | null | undefined): BugFormValues {
   return {
     title: initial?.title ?? '',
     description: initial?.description ?? '',

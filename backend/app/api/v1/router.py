@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, bugs, health, projects, sections, test_cases, users
+from app.api.v1 import (
+    auth,
+    bugs,
+    health,
+    projects,
+    sections,
+    test_cases,
+    test_runs,
+    users,
+)
 
 api_router = APIRouter(prefix="/v1")
 api_router.include_router(health.router)
@@ -12,3 +21,4 @@ api_router.include_router(projects.router)
 api_router.include_router(sections.router)
 api_router.include_router(test_cases.router)
 api_router.include_router(bugs.router)
+api_router.include_router(test_runs.router)

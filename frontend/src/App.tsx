@@ -10,8 +10,10 @@ import ProfilePage from './pages/ProfilePage';
 import ProjectBugsPage from './pages/ProjectBugsPage';
 import ProjectCasesPage from './pages/ProjectCasesPage';
 import ProjectLayout from './pages/ProjectLayout';
+import ProjectRunsPage from './pages/ProjectRunsPage';
 import ProjectsPage from './pages/ProjectsPage';
 import RegisterPage from './pages/RegisterPage';
+import TestRunDetailPage from './pages/TestRunDetailPage';
 
 export default function App() {
   return (
@@ -32,8 +34,10 @@ export default function App() {
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Navigate to="cases" replace />} />
             <Route path="cases" element={<ProjectCasesPage />} />
+            <Route path="runs" element={<ProjectRunsPage />} />
             <Route path="bugs" element={<ProjectBugsPage />} />
           </Route>
+          <Route path="/test-runs/:runId" element={<TestRunDetailPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
         </Route>
