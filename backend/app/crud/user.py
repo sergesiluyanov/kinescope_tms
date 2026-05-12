@@ -32,6 +32,25 @@ async def list_all(
     return list(result.scalars().all())
 
 
+async def count_admins(db: AsyncSession, *, active_only: bool = True) -> int:
+    """Считает админов, чтобы не оставить систему без них."""
+    from sqlalchemy import func
+
+    stmt = select(func.count()).select_from(User).where(User.role == "admin")
+    if active_only:
+        stmt = stmt.where(User.is_active.is_(True))
+    result = await db.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def apply_patch(db: AsyncSession, user: User, patch: dict[str, object]) -> User:
+    for field, value in patch.items():
+        setattr(user, field, value)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def create(
     db: AsyncSession,
     *,

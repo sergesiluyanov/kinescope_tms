@@ -35,3 +35,17 @@ class UserLoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordChangeRequest(BaseModel):
+    """Смена пароля для текущего пользователя."""
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class UserAdminUpdateRequest(BaseModel):
+    """Изменение роли/активности пользователя из админки."""
+
+    role: UserRole | None = None
+    is_active: bool | None = None

@@ -147,6 +147,13 @@ export async function fetchMe(): Promise<User> {
   return data;
 }
 
+export async function changePasswordRequest(payload: {
+  current_password: string;
+  new_password: string;
+}): Promise<void> {
+  await api.post('/api/v1/auth/change-password', payload);
+}
+
 export async function tryRestoreSession(): Promise<User | null> {
   // Если access живёт в localStorage — попробуем сразу /me. Иначе — refresh.
   if (getAccessToken()) {

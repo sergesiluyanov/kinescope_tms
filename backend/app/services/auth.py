@@ -90,6 +90,31 @@ async def register_user(
     )
 
 
+async def change_password(
+    db: AsyncSession,
+    *,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> None:
+    """Меняет пароль текущего пользователя. Бросает 400 при ошибках."""
+
+    if not verify_password(current_password, user.password_hash):
+        raise AuthError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Текущий пароль введён неверно",
+        )
+    if current_password == new_password:
+        raise AuthError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Новый пароль должен отличаться от текущего",
+        )
+    _validate_password_strength(new_password)
+
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+
+
 async def authenticate(db: AsyncSession, *, email: str, password: str) -> User:
     """Успешный логин или AuthError 401.
 

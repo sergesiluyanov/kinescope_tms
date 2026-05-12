@@ -3,8 +3,10 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { AuthProvider } from './auth/AuthContext';
 import RequireAuth from './auth/RequireAuth';
+import AdminUsersPage from './pages/AdminUsersPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import ProfilePage from './pages/ProfilePage';
 import ProjectBugsPage from './pages/ProjectBugsPage';
 import ProjectCasesPage from './pages/ProjectCasesPage';
 import ProjectLayout from './pages/ProjectLayout';
@@ -32,6 +34,8 @@ export default function App() {
             <Route path="cases" element={<ProjectCasesPage />} />
             <Route path="bugs" element={<ProjectBugsPage />} />
           </Route>
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/admin/users" element={<AdminUsersPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

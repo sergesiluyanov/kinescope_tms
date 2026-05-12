@@ -19,7 +19,12 @@ from app.core.database import get_db
 from app.crud import user as user_crud
 from app.models.user import User
 from app.schemas.auth import TokenResponse
-from app.schemas.user import UserLoginRequest, UserPublic, UserRegisterRequest
+from app.schemas.user import (
+    PasswordChangeRequest,
+    UserLoginRequest,
+    UserPublic,
+    UserRegisterRequest,
+)
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -146,3 +151,18 @@ async def logout(response: Response) -> Response:
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: User = Depends(get_current_user)) -> UserPublic:
     return UserPublic.model_validate(current_user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: PasswordChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    await auth_service.change_password(
+        db,
+        user=current_user,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
