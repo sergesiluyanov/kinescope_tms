@@ -6,6 +6,7 @@ from app.api.v1 import (
     auth,
     bugs,
     health,
+    imports,
     projects,
     sections,
     test_cases,
@@ -22,3 +23,4 @@ api_router.include_router(sections.router)
 api_router.include_router(test_cases.router)
 api_router.include_router(bugs.router)
 api_router.include_router(test_runs.router)
+api_router.include_router(imports.router)

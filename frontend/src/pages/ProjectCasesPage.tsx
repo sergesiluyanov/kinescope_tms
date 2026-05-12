@@ -16,6 +16,7 @@ import {
   updateTestCase,
 } from '@/api/testCases';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import ImportXlsxDialog from '@/components/ImportXlsxDialog';
 import SectionFormDialog from '@/components/SectionFormDialog';
 import SectionTree from '@/components/SectionTree';
 import TestCaseFormDialog, {
@@ -181,6 +182,7 @@ export default function ProjectCasesPage() {
   });
 
   const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const selectedSection = useMemo(() => {
     if (selectedSectionId == null) return null;
@@ -190,6 +192,17 @@ export default function ProjectCasesPage() {
   return (
     <div className="flex gap-6">
       <aside className="w-72 shrink-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        {canManage && (
+          <div className="mb-2 px-2">
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              ⬆ Импорт XLSX
+            </button>
+          </div>
+        )}
         {sectionsQuery.isLoading ? (
           <p className="px-2 text-sm text-slate-500">Загружаем разделы…</p>
         ) : (
@@ -333,6 +346,18 @@ export default function ProjectCasesPage() {
             updateCaseMutation.mutate({ id: caseDialog.initial.id, values });
           } else {
             createCaseMutation.mutate(values);
+          }
+        }}
+      />
+
+      <ImportXlsxDialog
+        open={importOpen}
+        projectId={projectId}
+        onClose={() => setImportOpen(false)}
+        onCompleted={() => {
+          queryClient.invalidateQueries({ queryKey: ['sections', projectId] });
+          if (selectedSectionId != null) {
+            queryClient.invalidateQueries({ queryKey: ['cases', selectedSectionId] });
           }
         }}
       />
