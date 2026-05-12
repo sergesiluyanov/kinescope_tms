@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
-import { getProject } from '@/api/projects';
 import {
   createSection,
   deleteSection as deleteSectionApi,
@@ -58,7 +57,7 @@ const PRIORITY_BADGE: Record<TestCasePriority, string> = {
   critical: 'bg-red-50 text-red-700',
 };
 
-export default function ProjectDetailPage() {
+export default function ProjectCasesPage() {
   const { projectId: projectIdParam } = useParams<{ projectId: string }>();
   const projectId = Number(projectIdParam);
 
@@ -67,12 +66,6 @@ export default function ProjectDetailPage() {
   const canManage = canManageSections(user);
 
   const queryClient = useQueryClient();
-
-  const projectQuery = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () => getProject(projectId),
-    enabled: !Number.isNaN(projectId),
-  });
 
   const sectionsQuery = useQuery({
     queryKey: ['sections', projectId],
@@ -83,7 +76,11 @@ export default function ProjectDetailPage() {
   const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (selectedSectionId == null && sectionsQuery.data && sectionsQuery.data.length > 0) {
+    if (
+      selectedSectionId == null &&
+      sectionsQuery.data &&
+      sectionsQuery.data.length > 0
+    ) {
       setSelectedSectionId(sectionsQuery.data[0].id);
     }
   }, [sectionsQuery.data, selectedSectionId]);
@@ -94,7 +91,6 @@ export default function ProjectDetailPage() {
     enabled: selectedSectionId != null,
   });
 
-  // ----- Sections: create/edit dialog -----
   const [sectionDialog, setSectionDialog] = useState<SectionDialogState>({
     open: false,
     mode: 'create',
@@ -148,7 +144,6 @@ export default function ProjectDetailPage() {
     },
   });
 
-  // ----- Test cases: create/edit dialog -----
   const [caseDialog, setCaseDialog] = useState<CaseDialogState>({
     open: false,
     mode: 'create',
@@ -185,7 +180,6 @@ export default function ProjectDetailPage() {
     },
   });
 
-  // ----- Confirm delete -----
   const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
 
   const selectedSection = useMemo(() => {
@@ -193,21 +187,9 @@ export default function ProjectDetailPage() {
     return sectionsQuery.data?.find((s) => s.id === selectedSectionId) ?? null;
   }, [sectionsQuery.data, selectedSectionId]);
 
-  if (Number.isNaN(projectId)) {
-    return <p className="p-10 text-red-600">Некорректный URL проекта.</p>;
-  }
-
   return (
-    <main className="mx-auto flex max-w-7xl gap-6 px-6 py-8">
+    <div className="flex gap-6">
       <aside className="w-72 shrink-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-3 px-2">
-          <Link to="/projects" className="text-xs text-slate-400 hover:underline">
-            ← Все проекты
-          </Link>
-          <h2 className="mt-1 truncate text-base font-semibold text-slate-900">
-            {projectQuery.data?.name ?? '…'}
-          </h2>
-        </div>
         {sectionsQuery.isLoading ? (
           <p className="px-2 text-sm text-slate-500">Загружаем разделы…</p>
         ) : (
@@ -310,7 +292,6 @@ export default function ProjectDetailPage() {
         )}
       </section>
 
-      {/* Section dialog */}
       <SectionFormDialog
         open={sectionDialog.open}
         title={
@@ -339,7 +320,6 @@ export default function ProjectDetailPage() {
         }}
       />
 
-      {/* Test case dialog */}
       <TestCaseFormDialog
         open={caseDialog.open}
         mode={caseDialog.initial ? 'edit' : 'create'}
@@ -357,10 +337,11 @@ export default function ProjectDetailPage() {
         }}
       />
 
-      {/* Delete confirm */}
       <ConfirmDialog
         open={deleteState != null}
-        title={deleteState?.kind === 'section' ? 'Удалить раздел?' : 'Удалить тест-кейс?'}
+        title={
+          deleteState?.kind === 'section' ? 'Удалить раздел?' : 'Удалить тест-кейс?'
+        }
         message={
           deleteState?.kind === 'section'
             ? `Раздел «${deleteState.label}» будет удалён вместе со всеми вложенными разделами и тест-кейсами. Действие необратимо.`
@@ -379,7 +360,7 @@ export default function ProjectDetailPage() {
           }
         }}
       />
-    </main>
+    </div>
   );
 }
 

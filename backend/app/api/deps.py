@@ -84,6 +84,11 @@ def require_qa_or_higher():
     return require_roles(UserRole.qa, UserRole.qa_lead, UserRole.admin)
 
 
+def require_qa_lead_or_admin():
+    """Деструктивные действия (удаление багов и т.п.)."""
+    return require_roles(UserRole.qa_lead, UserRole.admin)
+
+
 def has_any_role(user: User, roles: Iterable[UserRole]) -> bool:
     """Утилита для ручных проверок внутри хэндлеров."""
     return user.role in {role.value for role in roles}

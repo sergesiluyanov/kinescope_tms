@@ -5,7 +5,9 @@ import { AuthProvider } from './auth/AuthContext';
 import RequireAuth from './auth/RequireAuth';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
-import ProjectDetailPage from './pages/ProjectDetailPage';
+import ProjectBugsPage from './pages/ProjectBugsPage';
+import ProjectCasesPage from './pages/ProjectCasesPage';
+import ProjectLayout from './pages/ProjectLayout';
 import ProjectsPage from './pages/ProjectsPage';
 import RegisterPage from './pages/RegisterPage';
 
@@ -25,7 +27,11 @@ export default function App() {
         >
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/projects/:projectId" element={<ProjectLayout />}>
+            <Route index element={<Navigate to="cases" replace />} />
+            <Route path="cases" element={<ProjectCasesPage />} />
+            <Route path="bugs" element={<ProjectBugsPage />} />
+          </Route>
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

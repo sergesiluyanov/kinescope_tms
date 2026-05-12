@@ -20,6 +20,18 @@ async def get_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def list_all(
+    db: AsyncSession,
+    *,
+    active_only: bool = True,
+) -> list[User]:
+    stmt = select(User).order_by(User.full_name.is_(None), User.full_name, User.email)
+    if active_only:
+        stmt = stmt.where(User.is_active.is_(True))
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def create(
     db: AsyncSession,
     *,

@@ -22,3 +22,11 @@ export function canDeleteProject(user: User | null): boolean {
 export function isQaLeadOrHigher(user: User | null): boolean {
   return !!user && QA_LEAD_OR_HIGHER.includes(user.role);
 }
+
+export function canEditBugs(user: User | null): boolean {
+  return !!user && QA_OR_HIGHER.includes(user.role);
+}
+
+export function canDeleteBugs(user: User | null): boolean {
+  return !!user && QA_LEAD_OR_HIGHER.includes(user.role);
+}
