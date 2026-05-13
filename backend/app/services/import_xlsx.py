@@ -24,6 +24,12 @@ from app.models.test_case import TestCasePriority
 
 # ----- Маппинги -----
 
+# Шаги внутри одной ячейки часто пронумерованы — ловим оба варианта:
+# `1. ...` и `1) ...`. Требуем именно начало строки, чтобы не сматчить
+# версии вида «1.0.0» или «п.1» в середине текста.
+INLINE_STEP_RE = re.compile(r"^[ \t]*(\d+)[\.\)][ \t]+", re.MULTILINE)
+
+
 PRIORITY_MAP: dict[str, TestCasePriority] = {
     "самый низкий": TestCasePriority.low,
     "низкий": TestCasePriority.low,
@@ -116,6 +122,39 @@ def _split_section_path(raw: str) -> list[str]:
     return parts
 
 
+def split_numbered_block(text: str) -> list[str]:
+    """Если в ячейке лежит пронумерованный список («1. ...\\n2. ...»),
+    разбить его на отдельные пункты. Промежуточные строки без номера
+    (вложенные буллеты, дополнения) приклеиваются к предыдущему пункту.
+
+    Если нумерации нет (или только один номер) — возвращаем исходный текст
+    одним блоком; если текст пустой — пустой список.
+    """
+
+    if not text or not text.strip():
+        return []
+    matches = list(INLINE_STEP_RE.finditer(text))
+    # Меньше двух номеров — это не список, оставляем как есть.
+    if len(matches) < 2:
+        return [text.strip()]
+
+    parts: list[str] = []
+    # Если перед первым номером есть «вступительный» текст — сохраним его
+    # как отдельный нулевой пункт, чтобы ничего не потерять.
+    if matches[0].start() > 0:
+        preamble = text[: matches[0].start()].strip()
+        if preamble:
+            parts.append(preamble)
+
+    for i, m in enumerate(matches):
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[body_start:body_end].strip()
+        if body:
+            parts.append(body)
+    return parts
+
+
 def _build_title(
     case_external_id: str | None,
     title_cell: str,
@@ -158,12 +197,20 @@ def parse_xlsx_bytes(
     content: bytes,
     *,
     drop_root_section: bool = False,
+    split_inline_steps: bool = True,
 ) -> ImportPlan:
     """Превратить байты xlsx в список кейсов.
 
     `drop_root_section`: убрать первый уровень из «Расположения» — удобно
     для Test IT-экспортов, у которых верхний уровень совпадает с именем
     проекта (например, всегда «Kinescope»).
+
+    `split_inline_steps`: если в одной ячейке «Шаги» лежит пронумерованный
+    список вида «1. ... \\n2. ...», разрезать его на отдельные шаги.
+    «Ожидаемый результат» в Test IT почти всегда один на всю
+    последовательность — в этом случае он навешивается на последний шаг.
+    Если expected тоже пронумерован и совпадает по числу пунктов —
+    распределим попарно.
     """
 
     wb = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
@@ -274,9 +321,32 @@ def parse_xlsx_bytes(
         action = cell(row, "steps")
         expected = cell(row, "expected")
         if action:
-            current_step_buffers.append(
-                ParsedStep(action=action, expected=expected)
+            sub_actions = (
+                split_numbered_block(action) if split_inline_steps else [action]
             )
+            if len(sub_actions) <= 1:
+                current_step_buffers.append(
+                    ParsedStep(action=action, expected=expected)
+                )
+            else:
+                sub_expecteds = (
+                    split_numbered_block(expected) if split_inline_steps and expected else []
+                )
+                if len(sub_expecteds) == len(sub_actions):
+                    # «Шаг N» ↔ «Ожидаемое N» — попарно.
+                    for a, e in zip(sub_actions, sub_expecteds, strict=False):
+                        current_step_buffers.append(ParsedStep(action=a, expected=e))
+                else:
+                    # Один общий ожидаемый результат на всю последовательность
+                    # — это «итог сценария», вешаем его на последний шаг.
+                    last_idx = len(sub_actions) - 1
+                    for idx, a in enumerate(sub_actions):
+                        current_step_buffers.append(
+                            ParsedStep(
+                                action=a,
+                                expected=expected if idx == last_idx else "",
+                            )
+                        )
         elif expected:
             # «Общий» ожидаемый результат — нет действия, только expected.
             current_general_expected.append(expected)

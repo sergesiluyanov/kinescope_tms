@@ -27,6 +27,7 @@ export default function ImportXlsxDialog({
   const [stage, setStage] = useState<Stage>('pick');
   const [file, setFile] = useState<File | null>(null);
   const [dropRoot, setDropRoot] = useState(true);
+  const [splitInlineSteps, setSplitInlineSteps] = useState(true);
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null);
   const [result, setResult] = useState<ImportCommitResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,11 +48,14 @@ export default function ImportXlsxDialog({
     setTimeout(reset, 300);
   }
 
-  async function loadPreview(target: File, dropRootFlag: boolean) {
+  async function loadPreview(
+    target: File,
+    options: { dropRoot: boolean; splitInlineSteps: boolean },
+  ) {
     setBusy(true);
     setError(null);
     try {
-      const data = await previewXlsxImport(projectId, target, dropRootFlag);
+      const data = await previewXlsxImport(projectId, target, options);
       setPreview(data);
       setStage('preview');
     } catch (err) {
@@ -63,7 +67,7 @@ export default function ImportXlsxDialog({
 
   function handlePick(target: File) {
     setFile(target);
-    void loadPreview(target, dropRoot);
+    void loadPreview(target, { dropRoot, splitInlineSteps });
   }
 
   function onDrop(e: DragEvent<HTMLLabelElement>) {
@@ -78,7 +82,10 @@ export default function ImportXlsxDialog({
     setBusy(true);
     setError(null);
     try {
-      const data = await commitXlsxImport(projectId, file, dropRoot);
+      const data = await commitXlsxImport(projectId, file, {
+        dropRoot,
+        splitInlineSteps,
+      });
       setResult(data);
       setStage('done');
       onCompleted();
@@ -134,6 +141,21 @@ export default function ImportXlsxDialog({
               className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
             />
             Отбросить первый уровень разделов (например, «Kinescope»)
+          </label>
+
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={splitInlineSteps}
+              onChange={(e) => setSplitInlineSteps(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+            />
+            <span>
+              Разбивать слитные шаги в одной ячейке
+              <span className="ml-1 text-xs text-slate-400">
+                (пункты вида «1. … 2. …» становятся отдельными шагами)
+              </span>
+            </span>
           </label>
 
           {busy && (

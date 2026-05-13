@@ -61,6 +61,7 @@ async def preview_xlsx(
     project_id: int,
     file: UploadFile = File(...),
     drop_root_section: bool = Form(False),
+    split_inline_steps: bool = Form(True),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_qa_or_higher()),
 ) -> ImportPreviewResponse:
@@ -71,7 +72,11 @@ async def preview_xlsx(
     content = await _read_upload(file)
 
     try:
-        plan = importer.parse_xlsx_bytes(content, drop_root_section=drop_root_section)
+        plan = importer.parse_xlsx_bytes(
+            content,
+            drop_root_section=drop_root_section,
+            split_inline_steps=split_inline_steps,
+        )
     except Exception as exc:  # noqa: BLE001 — пробрасываем причину пользователю
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -106,6 +111,7 @@ async def commit_xlsx(
     project_id: int,
     file: UploadFile = File(...),
     drop_root_section: bool = Form(False),
+    split_inline_steps: bool = Form(True),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_qa_or_higher()),
 ) -> ImportCommitResponse:
@@ -115,7 +121,11 @@ async def commit_xlsx(
 
     content = await _read_upload(file)
     try:
-        plan = importer.parse_xlsx_bytes(content, drop_root_section=drop_root_section)
+        plan = importer.parse_xlsx_bytes(
+            content,
+            drop_root_section=drop_root_section,
+            split_inline_steps=split_inline_steps,
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

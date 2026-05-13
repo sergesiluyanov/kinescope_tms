@@ -22,21 +22,27 @@ export interface ImportCommitResponse {
   sections_created: number;
 }
 
-function buildForm(file: File, dropRoot: boolean): FormData {
+export interface ImportOptions {
+  dropRoot: boolean;
+  splitInlineSteps: boolean;
+}
+
+function buildForm(file: File, options: ImportOptions): FormData {
   const form = new FormData();
   form.append('file', file);
-  form.append('drop_root_section', dropRoot ? 'true' : 'false');
+  form.append('drop_root_section', options.dropRoot ? 'true' : 'false');
+  form.append('split_inline_steps', options.splitInlineSteps ? 'true' : 'false');
   return form;
 }
 
 export async function previewXlsxImport(
   projectId: number,
   file: File,
-  dropRoot: boolean,
+  options: ImportOptions,
 ): Promise<ImportPreviewResponse> {
   const { data } = await api.post<ImportPreviewResponse>(
     `/api/v1/projects/${projectId}/import/xlsx/preview`,
-    buildForm(file, dropRoot),
+    buildForm(file, options),
     { headers: { 'Content-Type': 'multipart/form-data' } },
   );
   return data;
@@ -45,11 +51,11 @@ export async function previewXlsxImport(
 export async function commitXlsxImport(
   projectId: number,
   file: File,
-  dropRoot: boolean,
+  options: ImportOptions,
 ): Promise<ImportCommitResponse> {
   const { data } = await api.post<ImportCommitResponse>(
     `/api/v1/projects/${projectId}/import/xlsx`,
-    buildForm(file, dropRoot),
+    buildForm(file, options),
     { headers: { 'Content-Type': 'multipart/form-data' } },
   );
   return data;
