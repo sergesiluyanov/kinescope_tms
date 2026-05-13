@@ -18,6 +18,7 @@ import {
 import ConfirmDialog from '@/components/ConfirmDialog';
 import ImportXlsxDialog from '@/components/ImportXlsxDialog';
 import SectionFormDialog from '@/components/SectionFormDialog';
+import SectionMoveDialog from '@/components/SectionMoveDialog';
 import SectionTree from '@/components/SectionTree';
 import TestCaseFormDialog, {
   type TestCaseFormValues,
@@ -183,6 +184,20 @@ export default function ProjectCasesPage() {
 
   const [deleteState, setDeleteState] = useState<DeleteState | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<Section | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const moveSectionMutation = useMutation({
+    mutationFn: ({ id, parentId }: { id: number; parentId: number | null }) =>
+      updateSection(id, { parent_id: parentId }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['sections', projectId] });
+      setMoveTarget(null);
+      setMoveError(null);
+    },
+    onError: (err) =>
+      setMoveError(extractApiError(err, 'Не удалось перенести раздел')),
+  });
 
   const selectedSection = useMemo(() => {
     if (selectedSectionId == null) return null;
@@ -225,6 +240,10 @@ export default function ProjectCasesPage() {
                 label: section.name,
               })
             }
+            onMove={(section) => {
+              setMoveError(null);
+              setMoveTarget(section);
+            }}
             canEdit={canManage}
           />
         )}
@@ -359,6 +378,22 @@ export default function ProjectCasesPage() {
           if (selectedSectionId != null) {
             queryClient.invalidateQueries({ queryKey: ['cases', selectedSectionId] });
           }
+        }}
+      />
+
+      <SectionMoveDialog
+        open={moveTarget != null}
+        section={moveTarget}
+        sections={sectionsQuery.data ?? []}
+        submitting={moveSectionMutation.isPending}
+        error={moveError}
+        onClose={() => {
+          setMoveTarget(null);
+          setMoveError(null);
+        }}
+        onSubmit={(newParentId) => {
+          if (!moveTarget) return;
+          moveSectionMutation.mutate({ id: moveTarget.id, parentId: newParentId });
         }}
       />
 

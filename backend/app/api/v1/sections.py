@@ -34,11 +34,35 @@ async def _validate_parent_section(
             status.HTTP_400_BAD_REQUEST,
             detail="Родительский раздел не найден в этом проекте",
         )
-    if section_id is not None and parent.id == section_id:
+    if section_id is None:
+        return
+    if parent.id == section_id:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="Раздел не может быть родителем самого себя",
         )
+    # Запрет на перенос в собственного потомка: поднимаемся от целевого
+    # родителя вверх по дереву и убеждаемся, что не встретим перемещаемый
+    # раздел. Глубину дерева ограничиваем 100, чтобы не зациклиться даже на
+    # повреждённых данных.
+    visited: set[int] = set()
+    current: int | None = parent.parent_id
+    for _ in range(100):
+        if current is None:
+            return
+        if current == section_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Нельзя перенести раздел внутрь собственного подраздела",
+            )
+        if current in visited:
+            # Защита от испорченных данных, на всякий случай.
+            return
+        visited.add(current)
+        ancestor = await section_crud.get_by_id(db, current)
+        if ancestor is None:
+            return
+        current = ancestor.parent_id
 
 
 @router.get(
@@ -99,12 +123,20 @@ async def update_section(
 
     patch = payload.model_dump(exclude_unset=True)
     if "parent_id" in patch:
+        new_parent_id = patch["parent_id"]
         await _validate_parent_section(
             db,
             project_id=section.project_id,
-            parent_id=patch["parent_id"],
+            parent_id=new_parent_id,
             section_id=section.id,
         )
+        # При переносе в другого родителя ставим раздел в конец нового
+        # списка, если клиент явно не указал позицию. Так раздел никогда
+        # не «уезжает в начало» и не наследует чужую позицию.
+        if "position" not in patch and new_parent_id != section.parent_id:
+            patch["position"] = await section_crud.next_position(
+                db, section.project_id, new_parent_id
+            )
 
     section = await section_crud.apply_patch(db, section, patch)
     return SectionResponse.model_validate(section)

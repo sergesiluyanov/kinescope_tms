@@ -36,6 +36,14 @@ async def _next_position(
     return int(last) + 1
 
 
+async def next_position(
+    db: AsyncSession, project_id: int, parent_id: int | None
+) -> int:
+    """Публичная обёртка над `_next_position` — нужна вызывающему коду
+    (например, при перемещении раздела между родителями)."""
+    return await _next_position(db, project_id, parent_id)
+
+
 async def create(
     db: AsyncSession,
     *,

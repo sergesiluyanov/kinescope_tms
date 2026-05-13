@@ -13,6 +13,7 @@ interface SectionTreeProps {
   onCreateChild: (parentId: number | null) => void;
   onRename: (section: Section) => void;
   onDelete: (section: Section) => void;
+  onMove: (section: Section) => void;
   canEdit: boolean;
 }
 
@@ -48,6 +49,7 @@ function NodeView({
   onCreateChild,
   onRename,
   onDelete,
+  onMove,
   canEdit,
 }: NodeViewProps) {
   const [open, setOpen] = useState(true);
@@ -99,6 +101,14 @@ function NodeView({
             </button>
             <button
               type="button"
+              onClick={() => onMove(node)}
+              title="Переместить"
+              className="rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            >
+              ↗
+            </button>
+            <button
+              type="button"
               onClick={() => onDelete(node)}
               title="Удалить"
               className="rounded px-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
@@ -120,6 +130,7 @@ function NodeView({
               onCreateChild={onCreateChild}
               onRename={onRename}
               onDelete={onDelete}
+              onMove={onMove}
               canEdit={canEdit}
             />
           ))}
@@ -161,6 +172,7 @@ export default function SectionTree(props: SectionTreeProps) {
               onCreateChild={props.onCreateChild}
               onRename={props.onRename}
               onDelete={props.onDelete}
+              onMove={props.onMove}
               canEdit={props.canEdit}
             />
           ))}
