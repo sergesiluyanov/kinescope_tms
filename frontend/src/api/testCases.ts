@@ -41,6 +41,19 @@ export async function getTestCase(id: number): Promise<TestCase> {
   return data;
 }
 
+export interface TestCaseLocator {
+  case_id: number;
+  section_id: number;
+  project_id: number;
+}
+
+export async function getTestCaseLocator(id: number): Promise<TestCaseLocator> {
+  const { data } = await api.get<TestCaseLocator>(
+    `/api/v1/test-cases/${id}/locator`,
+  );
+  return data;
+}
+
 export async function createTestCase(
   sectionId: number,
   payload: TestCaseCreatePayload,

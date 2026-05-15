@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import {
   createSection,
@@ -60,8 +60,14 @@ const PRIORITY_BADGE: Record<TestCasePriority, string> = {
 };
 
 export default function ProjectCasesPage() {
-  const { projectId: projectIdParam } = useParams<{ projectId: string }>();
+  const { projectId: projectIdParam, caseId: caseIdParam } = useParams<{
+    projectId: string;
+    caseId?: string;
+  }>();
   const projectId = Number(projectIdParam);
+  const urlCaseId = caseIdParam ? Number(caseIdParam) : null;
+
+  const navigate = useNavigate();
 
   const { user } = useAuth();
   const canEdit = canEditCases(user);
@@ -80,12 +86,13 @@ export default function ProjectCasesPage() {
   useEffect(() => {
     if (
       selectedSectionId == null &&
+      urlCaseId == null &&
       sectionsQuery.data &&
       sectionsQuery.data.length > 0
     ) {
       setSelectedSectionId(sectionsQuery.data[0].id);
     }
-  }, [sectionsQuery.data, selectedSectionId]);
+  }, [sectionsQuery.data, selectedSectionId, urlCaseId]);
 
   const casesQuery = useQuery({
     queryKey: ['cases', selectedSectionId],
@@ -152,12 +159,49 @@ export default function ProjectCasesPage() {
   });
   const [caseError, setCaseError] = useState<string | null>(null);
 
+  // Когда url содержит /cases/:caseId — загружаем кейс, переключаемся
+  // на его раздел и открываем диалог. Так deep-link
+  // вида /projects/12/cases/3456 сразу показывает нужный кейс.
+  useEffect(() => {
+    if (urlCaseId == null) {
+      // Закрываем модалку, если url вернулся к /cases (например, после
+      // нажатия «назад» в браузере или закрытия диалога).
+      setCaseDialog((prev) =>
+        prev.open && prev.mode === 'edit' ? { open: false, mode: 'create' } : prev,
+      );
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const full = await getTestCase(urlCaseId);
+        if (cancelled) return;
+        setSelectedSectionId(full.section_id);
+        setCaseError(null);
+        setCaseDialog({
+          open: true,
+          mode: canEdit ? 'edit' : 'create',
+          initial: full,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setCaseError(extractApiError(err, 'Тест-кейс не найден'));
+        navigate(`/projects/${projectId}/cases`, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [urlCaseId, projectId, navigate, canEdit]);
+
   const createCaseMutation = useMutation({
     mutationFn: (values: TestCaseFormValues) =>
       createTestCase(selectedSectionId as number, values),
-    onSuccess: async () => {
+    onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ['cases', selectedSectionId] });
-      setCaseDialog({ open: false, mode: 'create' });
+      // После создания открываем созданный кейс по его прямой ссылке —
+      // тогда URL сразу становится sharable, в т.ч. при F5.
+      navigate(`/projects/${projectId}/cases/${created.id}`, { replace: true });
     },
     onError: (err) =>
       setCaseError(extractApiError(err, 'Не удалось создать тест-кейс')),
@@ -168,7 +212,7 @@ export default function ProjectCasesPage() {
       updateTestCase(id, values),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['cases', selectedSectionId] });
-      setCaseDialog({ open: false, mode: 'create' });
+      navigate(`/projects/${projectId}/cases`);
     },
     onError: (err) =>
       setCaseError(extractApiError(err, 'Не удалось сохранить тест-кейс')),
@@ -298,19 +342,8 @@ export default function ProjectCasesPage() {
                 key={c.id}
                 summary={c}
                 canEdit={canEdit}
-                onOpen={async () => {
-                  try {
-                    const full = await getTestCase(c.id);
-                    setCaseError(null);
-                    setCaseDialog({
-                      open: true,
-                      mode: canEdit ? 'edit' : 'create',
-                      initial: full,
-                    });
-                  } catch (err) {
-                    setCaseError(extractApiError(err));
-                  }
-                }}
+                projectId={projectId}
+                onOpen={() => navigate(`/projects/${projectId}/cases/${c.id}`)}
                 onDelete={() =>
                   setDeleteState({
                     kind: 'case',
@@ -356,9 +389,18 @@ export default function ProjectCasesPage() {
         open={caseDialog.open}
         mode={caseDialog.initial ? 'edit' : 'create'}
         initial={caseDialog.initial}
+        projectId={projectId}
         submitting={createCaseMutation.isPending || updateCaseMutation.isPending}
         error={caseError}
-        onClose={() => setCaseDialog({ open: false, mode: 'create' })}
+        onClose={() => {
+          // Если открыт через deep-link, чистим url; для create-режима
+          // просто скрываем модалку.
+          if (caseDialog.mode === 'edit') {
+            navigate(`/projects/${projectId}/cases`);
+          } else {
+            setCaseDialog({ open: false, mode: 'create' });
+          }
+        }}
         onSubmit={(values) => {
           setCaseError(null);
           if (caseDialog.initial) {
@@ -427,11 +469,12 @@ export default function ProjectCasesPage() {
 interface CaseRowProps {
   summary: TestCaseSummary;
   canEdit: boolean;
+  projectId: number;
   onOpen: () => void;
   onDelete: () => void;
 }
 
-function CaseRow({ summary, canEdit, onOpen, onDelete }: CaseRowProps) {
+function CaseRow({ summary, canEdit, projectId, onOpen, onDelete }: CaseRowProps) {
   return (
     <li className="group flex items-center gap-3 py-2.5">
       <button
@@ -459,6 +502,10 @@ function CaseRow({ summary, canEdit, onOpen, onDelete }: CaseRowProps) {
           </span>
         ))}
       </button>
+      <CopyLinkButton
+        href={`/projects/${projectId}/cases/${summary.id}`}
+        title="Скопировать прямую ссылку на тест-кейс"
+      />
       {canEdit && (
         <button
           type="button"
@@ -470,5 +517,43 @@ function CaseRow({ summary, canEdit, onOpen, onDelete }: CaseRowProps) {
         </button>
       )}
     </li>
+  );
+}
+
+interface CopyLinkButtonProps {
+  href: string;
+  title?: string;
+  className?: string;
+}
+
+function CopyLinkButton({ href, title, className }: CopyLinkButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    const fullUrl = new URL(href, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback на старые браузеры / небезопасные origin (например, http
+      // без https) — открываем prompt со ссылкой, чтобы пользователь
+      // скопировал её вручную.
+      window.prompt('Скопируйте ссылку:', fullUrl);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={title ?? 'Скопировать ссылку'}
+      className={
+        className ??
+        'invisible rounded p-1 text-slate-400 transition group-hover:visible hover:bg-slate-100 hover:text-slate-700'
+      }
+    >
+      {copied ? '✓' : '🔗'}
+    </button>
   );
 }

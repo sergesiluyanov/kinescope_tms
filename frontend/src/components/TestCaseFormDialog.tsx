@@ -22,6 +22,7 @@ interface TestCaseFormDialogProps {
   open: boolean;
   mode: 'create' | 'edit';
   initial?: TestCase | null;
+  projectId?: number;
   submitting?: boolean;
   error?: string | null;
   onClose: () => void;
@@ -44,6 +45,7 @@ export default function TestCaseFormDialog({
   open,
   mode,
   initial,
+  projectId,
   submitting = false,
   error = null,
   onClose,
@@ -51,6 +53,7 @@ export default function TestCaseFormDialog({
 }: TestCaseFormDialogProps) {
   const [values, setValues] = useState<TestCaseFormValues>(() => defaults(initial));
   const [tagInput, setTagInput] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -108,6 +111,25 @@ export default function TestCaseFormDialog({
 
   const isValid = values.title.trim().length > 0;
 
+  const shareUrl =
+    mode === 'edit' && initial && projectId != null
+      ? new URL(
+          `/projects/${projectId}/cases/${initial.id}`,
+          window.location.origin,
+        ).toString()
+      : null;
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1500);
+    } catch {
+      window.prompt('Скопируйте ссылку:', shareUrl);
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -115,6 +137,21 @@ export default function TestCaseFormDialog({
       title={mode === 'create' ? 'Новый тест-кейс' : 'Редактирование тест-кейса'}
       size="lg"
     >
+      {shareUrl && initial && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <span className="font-mono">TC-{String(initial.id).padStart(4, '0')}</span>
+          <span className="truncate">{shareUrl}</span>
+          <button
+            type="button"
+            onClick={copyShareUrl}
+            className="ml-auto shrink-0 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            title="Скопировать ссылку"
+          >
+            {linkCopied ? '✓ Скопировано' : '🔗 Скопировать ссылку'}
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-5">
         <label className="block">
           <span className="text-sm font-medium text-slate-700">Название</span>

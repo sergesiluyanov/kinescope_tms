@@ -12,6 +12,7 @@ from app.crud import test_case as test_case_crud
 from app.models.user import User
 from app.schemas.test_case import (
     TestCaseCreateRequest,
+    TestCaseLocator,
     TestCaseResponse,
     TestCaseSummary,
     TestCaseUpdateRequest,
@@ -77,6 +78,35 @@ async def get_test_case(
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Тест-кейс не найден")
     return TestCaseResponse.model_validate(case)
+
+
+@router.get("/test-cases/{case_id}/locator", response_model=TestCaseLocator)
+async def get_test_case_locator(
+    case_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> TestCaseLocator:
+    """Возвращает project_id/section_id для тест-кейса.
+
+    Используется фронтом для коротких deep-link URL вида `/c/{case_id}`:
+    автотесту достаточно знать id, чтобы открыть кейс — резолвер на
+    клиенте подставит project и section.
+    """
+    case = await test_case_crud.get_by_id(db, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Тест-кейс не найден")
+    section = await section_crud.get_by_id(db, case.section_id)
+    if section is None:
+        # Теоретически невозможно — FK гарантирует, но на всякий случай.
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail="Раздел тест-кейса не найден",
+        )
+    return TestCaseLocator(
+        case_id=case.id,
+        section_id=section.id,
+        project_id=section.project_id,
+    )
 
 
 @router.patch("/test-cases/{case_id}", response_model=TestCaseResponse)

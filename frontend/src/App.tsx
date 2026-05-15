@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import { AuthProvider } from './auth/AuthContext';
 import RequireAuth from './auth/RequireAuth';
 import AdminUsersPage from './pages/AdminUsersPage';
+import CaseShortLink from './pages/CaseShortLink';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
@@ -34,10 +35,12 @@ export default function App() {
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Navigate to="cases" replace />} />
             <Route path="cases" element={<ProjectCasesPage />} />
+            <Route path="cases/:caseId" element={<ProjectCasesPage />} />
             <Route path="runs" element={<ProjectRunsPage />} />
             <Route path="bugs" element={<ProjectBugsPage />} />
           </Route>
           <Route path="/test-runs/:runId" element={<TestRunDetailPage />} />
+          <Route path="/c/:caseId" element={<CaseShortLink />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
         </Route>

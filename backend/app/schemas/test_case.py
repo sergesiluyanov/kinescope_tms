@@ -62,3 +62,11 @@ class TestCaseResponse(BaseModel):
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class TestCaseLocator(BaseModel):
+    """Координаты тест-кейса в иерархии — для коротких deep-link URL."""
+
+    case_id: int
+    section_id: int
+    project_id: int
