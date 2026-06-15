@@ -4,6 +4,12 @@
 по разделам, баг-репорты, прогоны, интеграция с Kaiten. Разворачивается
 на собственном сервере.
 
+> **Для QA-инженеров:** правила и соглашения по ведению тест-кейсов,
+> прогонов и багов — в [docs/qa-guide.md](docs/qa-guide.md).
+>
+> **Деплой / переезд на другую VM с HTTPS** —
+> [docs/deploy-migration.md](docs/deploy-migration.md).
+
 ## Стек
 
 - **Backend** — Python 3.12, FastAPI, SQLAlchemy 2.x (async), Alembic, Pydantic v2
