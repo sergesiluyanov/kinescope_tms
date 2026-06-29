@@ -58,7 +58,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "80:80"
+      - "8085:80"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
       interval: 30s

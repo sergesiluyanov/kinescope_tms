@@ -40,17 +40,31 @@ PRIORITY_MAP: dict[str, TestCasePriority] = {
     "high": TestCasePriority.high,
     "medium": TestCasePriority.medium,
     "low": TestCasePriority.low,
+    # Короткая нотация «P0..P3», часто встречается в шаблонах руками собранных:
+    # P0 — must-have / blocker, P3 — nice-to-have.
+    "p0": TestCasePriority.critical,
+    "p1": TestCasePriority.high,
+    "p2": TestCasePriority.medium,
+    "p3": TestCasePriority.low,
 }
 
 REQUIRED_HEADERS: dict[str, list[str]] = {
     "id": ["ID"],
-    "location": ["Расположение", "Раздел", "Папка"],
+    # Полный путь раздела одной строкой («Раздел -> Подраздел -> ...»).
+    "location": ["Расположение", "Раздел", "Path", "Folder Path"],
+    # Альтернатива: раздел и подраздел в разных колонках. Если есть «section»
+    # и «subsection», иерархия собирается из них в порядке section -> subsection.
+    "section": ["Section", "Раздел верхнего уровня", "Folder", "Suite"],
+    "subsection": ["Subsection", "Подраздел", "Папка", "Subfolder"],
     "title": ["Наименование", "Название", "Заголовок", "Title"],
-    "preconditions": ["Предусловия", "Preconditions"],
+    "preconditions": ["Предусловия", "Preconditions", "Pre-conditions"],
     "steps": ["Шаги", "Steps"],
-    "expected": ["Ожидаемый результат", "Expected"],
+    "expected": ["Ожидаемый результат", "Expected", "Expected Result"],
     "priority": ["Приоритет", "Priority"],
     "tag": ["Тег", "Теги", "Tag", "Tags"],
+    # Произвольные заметки — кладём в preconditions с префиксом, чтобы
+    # не терять информацию, которая часто оказывается важной для воспроизведения.
+    "notes": ["Notes", "Заметки", "Комментарии", "Comments"],
 }
 
 SECTION_SEPARATOR_RE = re.compile(r"\s*->\s*|\s*/\s*")
@@ -222,15 +236,20 @@ def parse_xlsx_bytes(
 
     header = rows[0]
     cols = _resolve_columns(header)
-    missing = [k for k in ("id", "location", "steps") if k not in cols]
     issues: list[str] = []
-    if missing:
+    # Единственная по-настоящему обязательная колонка — это «Шаги»: без
+    # действий кейс бесполезен. Иерархия раздела опциональна (если нет —
+    # кейсы упадут в раздел «Импорт»); ID опционален тоже — без него
+    # каждая строка = отдельный кейс (форма «один кейс на строку»).
+    if "steps" not in cols:
         issues.append(
-            "В файле не нашлись колонки: "
-            + ", ".join(missing)
-            + ". Поддерживаются заголовки Test IT (ID, Расположение, Шаги, ...)."
+            "В файле не нашлась колонка с шагами. "
+            "Поддерживаются заголовки: «Шаги» или «Steps»."
         )
         return ImportPlan(cases=[], issues=issues)
+    has_id_column = "id" in cols
+    has_location_column = "location" in cols
+    has_section_columns = "section" in cols or "subsection" in cols
 
     def cell(row: tuple[Any, ...], key: str) -> str:
         idx = cols.get(key)
@@ -274,17 +293,44 @@ def parse_xlsx_bytes(
         current.title = new_title
         cases.append(current)
 
+    def resolve_section_path(row: tuple[Any, ...]) -> list[str]:
+        """Иерархия раздела из «Расположения» (приоритет) либо из
+        пары «Section / Subsection». Если нет ни того, ни другого —
+        пустой путь (кейс попадёт в дефолтный раздел «Импорт»)."""
+        if has_location_column:
+            location_raw = cell(row, "location")
+            if location_raw:
+                return _split_section_path(location_raw)
+        if has_section_columns:
+            parts: list[str] = []
+            sec_val = cell(row, "section")
+            if sec_val:
+                parts.append(sec_val.strip())
+            sub_val = cell(row, "subsection")
+            if sub_val:
+                parts.append(sub_val.strip())
+            return parts
+        return []
+
+    def is_new_case_row(row: tuple[Any, ...]) -> bool:
+        """Считаем, что начался новый кейс, если:
+        - В файле есть колонка ID и в ней непустое значение, ИЛИ
+        - Колонки ID нет вовсе — тогда каждая строка с непустыми
+          «Шагами» или «Названием» считается отдельным кейсом."""
+        if has_id_column:
+            return bool(cell(row, "id"))
+        return bool(cell(row, "steps") or cell(row, "title"))
+
     for row in rows[1:]:
-        ext_id = cell(row, "id")
-        if ext_id:
+        if is_new_case_row(row):
             # Новый кейс — закрыть предыдущий.
             flush_current()
-            location_raw = cell(row, "location")
-            section_path = _split_section_path(location_raw) if location_raw else []
+            ext_id = cell(row, "id") if has_id_column else None
+            section_path = resolve_section_path(row)
             if drop_root_section and len(section_path) > 1:
                 section_path = section_path[1:]
             current = ParsedCase(
-                external_id=ext_id,
+                external_id=ext_id or None,
                 section_path=section_path,
                 title=cell(row, "title"),
                 preconditions=None,
@@ -299,7 +345,55 @@ def parse_xlsx_bytes(
             current_step_buffers = []
             current_general_expected = []
 
-            # На той же строке могут быть тег/название.
+            # Предусловия, шаги, теги и заметки могут лежать в этой же
+            # строке (форма «один кейс на строку»). В Test IT-форме
+            # «шаги расписаны построчно» они появятся в следующих строках
+            # и попадут в ту же логику ниже — без дублирования: после
+            # continue мы уйдём сюда же на следующей итерации только если
+            # is_new_case_row снова true.
+            pre = cell(row, "preconditions")
+            if pre:
+                current_pre_lines.append(pre)
+
+            notes = cell(row, "notes") if "notes" in cols else ""
+            if notes:
+                current_pre_lines.append(f"Заметки: {notes}")
+
+            action = cell(row, "steps")
+            expected = cell(row, "expected")
+            if action:
+                sub_actions = (
+                    split_numbered_block(action)
+                    if split_inline_steps
+                    else [action]
+                )
+                if len(sub_actions) <= 1:
+                    current_step_buffers.append(
+                        ParsedStep(action=action, expected=expected)
+                    )
+                else:
+                    sub_expecteds = (
+                        split_numbered_block(expected)
+                        if split_inline_steps and expected
+                        else []
+                    )
+                    if len(sub_expecteds) == len(sub_actions):
+                        for a, e in zip(sub_actions, sub_expecteds, strict=False):
+                            current_step_buffers.append(
+                                ParsedStep(action=a, expected=e)
+                            )
+                    else:
+                        last_idx = len(sub_actions) - 1
+                        for idx, a in enumerate(sub_actions):
+                            current_step_buffers.append(
+                                ParsedStep(
+                                    action=a,
+                                    expected=expected if idx == last_idx else "",
+                                )
+                            )
+            elif expected:
+                current_general_expected.append(expected)
+
             tag_val = cell(row, "tag")
             if tag_val:
                 for t in re.split(r"[,\n;]+", tag_val):
@@ -317,6 +411,10 @@ def parse_xlsx_bytes(
         pre = cell(row, "preconditions")
         if pre:
             current_pre_lines.append(pre)
+
+        notes = cell(row, "notes") if "notes" in cols else ""
+        if notes:
+            current_pre_lines.append(f"Заметки: {notes}")
 
         action = cell(row, "steps")
         expected = cell(row, "expected")
