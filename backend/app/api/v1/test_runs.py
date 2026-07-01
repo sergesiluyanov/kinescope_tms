@@ -34,15 +34,27 @@ from app.services.run_report import render_run_report_html
 router = APIRouter(tags=["test-runs"])
 
 
-def _slugify_for_filename(text: str, fallback: str = "test-run") -> str:
-    """Простейший slug для Content-Disposition — оставляем ASCII-безопасное,
-    остальное превращаем в дефис. HTTP-заголовки не любят кириллицу,
-    поэтому не хочется прокидывать оригинальное название целиком."""
-    safe = "".join(
-        ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in text
-    )
-    safe = "-".join(part for part in safe.split("-") if part)
-    return safe[:80] or fallback
+def _ascii_slug(text: str) -> str:
+    """ASCII-safe slug для fallback `filename=` в Content-Disposition.
+
+    HTTP-заголовки в starlette кодируются в latin-1, поэтому в
+    «обычной» части `filename="..."` не должно быть не-ASCII символов
+    (в частности, кириллицы). Для оригинального имени с юникодом мы
+    используем `filename*=UTF-8''...`, а тут — просто транслит через
+    отбрасывание не-ASCII.
+    """
+    parts: list[str] = []
+    for ch in text:
+        if ch.isascii() and (ch.isalnum() or ch in ("-", "_")):
+            parts.append(ch)
+        elif ch.isspace() or ch in (".", ",", "/", "\\", ":", ";"):
+            parts.append("-")
+        # прочее (в т.ч. кириллица, эмодзи) — просто выкидываем
+    joined = "".join(parts)
+    # схлопываем повторяющиеся дефисы и обрезаем по краям
+    while "--" in joined:
+        joined = joined.replace("--", "-")
+    return joined.strip("-")[:80]
 
 
 def _report_response(
@@ -53,14 +65,20 @@ def _report_response(
     html_body = render_run_report_html(run)
     headers: dict[str, str] = {}
     if as_download:
-        slug = _slugify_for_filename(run.name, fallback=f"test-run-{run.id}")
-        filename = f"{slug or f'test-run-{run.id}'}-{run.id}.html"
-        # Оригинальное название (в т.ч. с кириллицей) прокидываем через
-        # RFC 5987 filename* — оно нормально понимается всеми браузерами.
+        # ASCII-safe fallback имя для старых клиентов и на случай, если
+        # `filename*` не поймётся. Всегда содержит id, чтобы файлы разных
+        # прогонов не сливались.
+        slug = _ascii_slug(run.name)
+        fallback_name = f"{slug}-{run.id}.html" if slug else f"test-run-{run.id}.html"
+        # RFC 5987: filename* поддерживает произвольный юникод через
+        # percent-encoding. Так браузер получит красивое кириллическое имя,
+        # а latin-1-заголовок при этом не сломается.
         from urllib.parse import quote
+
+        utf8_name = quote(f"{run.name}.html", safe="")
         headers["Content-Disposition"] = (
-            f'attachment; filename="{filename}"; '
-            f"filename*=UTF-8''{quote(run.name)}.html"
+            f'attachment; filename="{fallback_name}"; '
+            f"filename*=UTF-8''{utf8_name}"
         )
     return Response(
         content=html_body,
