@@ -62,7 +62,10 @@ def _report_response(
     *,
     as_download: bool,
 ) -> Response:
-    html_body = render_run_report_html(run)
+    # На «своей» странице владельца (и в download-версии) отдаём отчёт
+    # с деталями по failed/blocked. Public share-эндпоинт использует
+    # `render_run_report_html` напрямую без этого флага.
+    html_body = render_run_report_html(run, include_case_details=True)
     headers: dict[str, str] = {}
     if as_download:
         # ASCII-safe fallback имя для старых клиентов и на случай, если

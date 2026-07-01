@@ -6,6 +6,14 @@
 * открыть в браузере при клике по share-ссылке;
 * скачать и переслать по почте/мессенджеру — файл откроется как есть;
 * распечатать (заложены `@media print` стили).
+
+Уровень детализации задаётся флагом `include_case_details`:
+
+* публичная share-версия (без auth) рендерится с `False` — только шапка
+  и сводка, чтобы не проливать наружу комментарии QA и связи с багами;
+* «скачать HTML» и внутренний просмотр (`?download=1` или явно
+  `include_case_details=True`) добавляют секцию «Проблемные кейсы»
+  с деталями по каждому failed/blocked-айтему.
 """
 
 from __future__ import annotations
@@ -13,7 +21,12 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from app.models.test_run import TestRun, TestRunItemStatus, TestRunStatus
+from app.models.test_run import (
+    TestRun,
+    TestRunItem,
+    TestRunItemStatus,
+    TestRunStatus,
+)
 
 # Порядок и человеческие названия для отображения в сводке/прогресс-баре.
 _STATUS_ORDER: list[tuple[TestRunItemStatus, str, str]] = [
@@ -75,8 +88,175 @@ def _run_status_badge(status_value: str) -> str:
     )
 
 
-def render_run_report_html(run: TestRun) -> str:
-    """Возвращает готовый HTML-отчёт по прогону как строку."""
+# Приоритеты кейса — визуально маркируем полосой сбоку карточки.
+_PRIORITY_LABELS: dict[str, str] = {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+}
+_PRIORITY_COLORS: dict[str, str] = {
+    "critical": "#dc2626",
+    "high": "#ea580c",
+    "medium": "#ca8a04",
+    "low": "#64748b",
+}
+
+
+def _item_status_meta(status_value: str) -> tuple[str, str]:
+    """Возвращает (label, color) для статуса конкретного айтема прогона."""
+    for enum_val, label, color in _STATUS_ORDER:
+        if enum_val.value == status_value:
+            return label, color
+    return status_value, "#64748b"
+
+
+def _person_name(person: object | None) -> str:
+    """Достаём человеческое имя пользователя из ORM-объекта. Работает и
+    с ленивыми selectin-load, и с пропущенным relationship (None)."""
+    if person is None:
+        return ""
+    full_name = getattr(person, "full_name", None)
+    email = getattr(person, "email", None)
+    return full_name or email or ""
+
+
+def _render_problem_case(item: TestRunItem, index: int) -> str:
+    """Одна карточка «проблемного» кейса — failed или blocked.
+
+    Собираем максимально плотную информацию: заголовок, статус, приоритет,
+    исполнителя и время, связанный баг, тэги, комментарий QA. Всё
+    HTML-escape'им, потому что этот текст пишут пользователи, и в нём
+    легко могут оказаться `<`, `>`, `&` или ссылки.
+    """
+    status_label, status_color = _item_status_meta(item.status)
+    priority_label = _PRIORITY_LABELS.get(item.priority, item.priority)
+    priority_color = _PRIORITY_COLORS.get(item.priority, "#64748b")
+
+    header_bits: list[str] = [
+        f'<span class="case-num">#{index}</span>',
+        f'<span class="badge" style="background:{status_color};">'
+        f"{html.escape(status_label)}</span>",
+        f'<span class="badge badge-outline" '
+        f'style="border-color:{priority_color};color:{priority_color};">'
+        f"{html.escape(priority_label)}</span>",
+    ]
+    if item.linked_bug_id:
+        bug_ref = f"BUG-{str(item.linked_bug_id).zfill(4)}"
+        header_bits.append(
+            f'<span class="badge badge-outline" '
+            f'style="border-color:#dc2626;color:#dc2626;">'
+            f"{html.escape(bug_ref)}</span>"
+        )
+
+    meta_bits: list[str] = []
+    executor = _person_name(getattr(item, "executed_by", None))
+    if executor:
+        meta_bits.append(
+            f'<span class="case-meta-key">Выполнил:</span> '
+            f"{html.escape(executor)}"
+        )
+    if item.executed_at:
+        meta_bits.append(
+            f'<span class="case-meta-key">Когда:</span> '
+            f"{_fmt_datetime(item.executed_at)}"
+        )
+    assignee = _person_name(getattr(item, "assignee", None))
+    if assignee:
+        meta_bits.append(
+            f'<span class="case-meta-key">Назначен:</span> '
+            f"{html.escape(assignee)}"
+        )
+    if item.tags:
+        tags_html = " ".join(
+            f'<span class="case-tag">{html.escape(t)}</span>'
+            for t in item.tags
+        )
+        meta_bits.append(f'<span class="case-tags">{tags_html}</span>')
+    meta_html = (
+        f'<div class="case-meta">{" · ".join(meta_bits)}</div>'
+        if meta_bits
+        else ""
+    )
+
+    comment_html = ""
+    if item.comment and item.comment.strip():
+        comment_html = (
+            '<div class="case-comment">'
+            '<div class="case-comment-label">Комментарий QA</div>'
+            f'<div class="case-comment-body">{html.escape(item.comment)}</div>'
+            "</div>"
+        )
+    else:
+        comment_html = (
+            '<div class="case-comment case-comment-empty">'
+            "Комментария нет"
+            "</div>"
+        )
+
+    return (
+        f'<article class="case" style="border-left-color:{status_color};">'
+        f'<header class="case-head">{"".join(header_bits)}</header>'
+        f'<h3 class="case-title">{html.escape(item.title)}</h3>'
+        f"{meta_html}"
+        f"{comment_html}"
+        "</article>"
+    )
+
+
+def _render_problem_cases_section(items: list[TestRunItem]) -> str:
+    """Секция с деталями failed + blocked. Пустая — не рендерится."""
+    problem_items = [
+        it
+        for it in items
+        if it.status
+        in (TestRunItemStatus.failed.value, TestRunItemStatus.blocked.value)
+    ]
+    if not problem_items:
+        return ""
+
+    # Сортируем: сначала failed, потом blocked, внутри — по position.
+    order = {
+        TestRunItemStatus.failed.value: 0,
+        TestRunItemStatus.blocked.value: 1,
+    }
+    problem_items.sort(key=lambda it: (order.get(it.status, 9), it.position))
+
+    cases_html = "".join(
+        _render_problem_case(it, index=it.position + 1) for it in problem_items
+    )
+
+    failed_n = sum(
+        1 for it in problem_items if it.status == TestRunItemStatus.failed.value
+    )
+    blocked_n = sum(
+        1 for it in problem_items if it.status == TestRunItemStatus.blocked.value
+    )
+    subtitle_parts = []
+    if failed_n:
+        subtitle_parts.append(f"упавших — {failed_n}")
+    if blocked_n:
+        subtitle_parts.append(f"заблокированных — {blocked_n}")
+    subtitle = " · ".join(subtitle_parts)
+
+    return (
+        '<section class="section">'
+        '<h2 class="section-title">Проблемные кейсы</h2>'
+        f'<div class="section-subtitle">{subtitle}</div>'
+        f'<div class="cases">{cases_html}</div>'
+        "</section>"
+    )
+
+
+def render_run_report_html(
+    run: TestRun, *, include_case_details: bool = False
+) -> str:
+    """Возвращает готовый HTML-отчёт по прогону как строку.
+
+    ``include_case_details`` управляет уровнем детализации: при `True`
+    к сводке добавляется секция «Проблемные кейсы» (failed + blocked)
+    с комментариями QA, исполнителями и ссылками на баги.
+    """
     items = list(run.items)
     total = len(items)
 
@@ -150,6 +330,10 @@ def render_run_report_html(run: TestRun) -> str:
 
     generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     safe_name = html.escape(run.name)
+
+    problem_cases_html = (
+        _render_problem_cases_section(items) if include_case_details else ""
+    )
 
     return f"""<!doctype html>
 <html lang="ru">
@@ -313,6 +497,91 @@ def render_run_report_html(run: TestRun) -> str:
     color: var(--fg);
   }}
 
+  /* Проблемные кейсы */
+  .section-subtitle {{
+    color: var(--fg-muted);
+    font-size: 13px;
+    margin-bottom: 12px;
+  }}
+  .cases {{ display: flex; flex-direction: column; gap: 12px; }}
+  .case {{
+    border: 1px solid var(--border);
+    border-left: 4px solid #ef4444;
+    border-radius: 12px;
+    padding: 14px 18px;
+    background: var(--bg);
+  }}
+  .case-head {{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+  }}
+  .case-num {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--fg-muted);
+  }}
+  .case-title {{
+    font-size: 16px;
+    margin: 0 0 6px;
+    letter-spacing: -0.005em;
+    line-height: 1.35;
+  }}
+  .case-meta {{
+    color: var(--fg-muted);
+    font-size: 13px;
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    align-items: center;
+  }}
+  .case-meta-key {{ color: #94a3b8; }}
+  .case-tags {{ display: inline-flex; flex-wrap: wrap; gap: 4px; }}
+  .case-tag {{
+    background: #f1f5f9;
+    color: #475569;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+  }}
+  .case-comment {{
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    color: #7c2d12;
+  }}
+  .case-comment-label {{
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #9a3412;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }}
+  .case-comment-body {{
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.5;
+  }}
+  .case-comment-empty {{
+    background: #f8fafc;
+    border-color: var(--border);
+    color: var(--fg-muted);
+    font-style: italic;
+  }}
+  .badge-outline {{
+    background: transparent;
+    border: 1px solid;
+    padding: 1px 8px;
+    font-size: 12px;
+    font-weight: 500;
+  }}
+
   footer.foot {{
     margin-top: 40px;
     padding-top: 16px;
@@ -376,6 +645,8 @@ def render_run_report_html(run: TestRun) -> str:
       <div class="bar">{bar_html}</div>
       <div class="legend">{legend_html}</div>
     </section>
+
+    {problem_cases_html}
 
     <footer class="foot">
       <span>Kinescope TMS</span>
