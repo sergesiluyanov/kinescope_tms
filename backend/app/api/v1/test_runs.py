@@ -14,6 +14,7 @@ from app.api.deps import (
     require_qa_or_higher,
 )
 from app.core.database import get_db
+from app.crud import bug as bug_crud
 from app.crud import project as project_crud
 from app.crud import test_run as run_crud
 from app.crud import user as user_crud
@@ -57,7 +58,8 @@ def _ascii_slug(text: str) -> str:
     return joined.strip("-")[:80]
 
 
-def _report_response(
+async def _report_response(
+    db: AsyncSession,
     run: TestRun,
     *,
     as_download: bool,
@@ -65,7 +67,23 @@ def _report_response(
     # На «своей» странице владельца (и в download-версии) отдаём отчёт
     # с деталями по failed/blocked. Public share-эндпоинт использует
     # `render_run_report_html` напрямую без этого флага.
-    html_body = render_run_report_html(run, include_case_details=True)
+    #
+    # Подтягиваем баги по всем linked_bug_id, чтобы в карточке проблемного
+    # кейса развернуть описание и шаги воспроизведения. Одним IN-запросом,
+    # без N+1.
+    bug_ids = sorted(
+        {it.linked_bug_id for it in run.items if it.linked_bug_id}
+    )
+    bugs_by_id: dict[int, object] = {}
+    if bug_ids:
+        bugs = await bug_crud.list_by_ids(db, bug_ids)
+        bugs_by_id = {b.id: b for b in bugs}
+
+    html_body = render_run_report_html(
+        run,
+        include_case_details=True,
+        bugs_by_id=bugs_by_id,  # type: ignore[arg-type]
+    )
     headers: dict[str, str] = {}
     if as_download:
         # ASCII-safe fallback имя для старых клиентов и на случай, если
@@ -354,7 +372,7 @@ async def get_test_run_report(
     run = await run_crud.get_by_id(db, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Прогон не найден")
-    return _report_response(run, as_download=download)
+    return await _report_response(db, run, as_download=download)
 
 
 @router.post(

@@ -58,6 +58,24 @@ async def get_by_id(db: AsyncSession, bug_id: int) -> Bug | None:
     return result.scalar_one_or_none()
 
 
+async def list_by_ids(db: AsyncSession, bug_ids: list[int]) -> list[Bug]:
+    """Одним запросом достаёт баги по списку id.
+
+    Используется для HTML-отчёта: там нужно подтянуть описания и шаги
+    воспроизведения по всем linked_bug_id одного прогона, чтобы не
+    делать N+1 запросов.
+    """
+    if not bug_ids:
+        return []
+    stmt = (
+        select(Bug)
+        .where(Bug.id.in_(bug_ids))
+        .options(*_with_relations())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def create(
     db: AsyncSession,
     *,

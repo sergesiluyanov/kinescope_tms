@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from app.models.test_run import (
     TestRun,
@@ -27,6 +29,11 @@ from app.models.test_run import (
     TestRunItemStatus,
     TestRunStatus,
 )
+
+if TYPE_CHECKING:
+    # Bug импортируется только для аннотаций типов, чтобы не тянуть модель
+    # в public-эндпоинт, где детали не рендерятся вообще.
+    from app.models.bug import Bug
 
 # Порядок и человеческие названия для отображения в сводке/прогресс-баре.
 _STATUS_ORDER: list[tuple[TestRunItemStatus, str, str]] = [
@@ -121,13 +128,102 @@ def _person_name(person: object | None) -> str:
     return full_name or email or ""
 
 
-def _render_problem_case(item: TestRunItem, index: int) -> str:
+# Статусы бага (BugStatus.*) → человеческие подписи + цвета. Дублируем
+# здесь строковые значения, а не тянем enum, чтобы run_report.py оставался
+# независимым от models.bug (public-эндпоинту он не нужен).
+_BUG_STATUS_LABELS: dict[str, str] = {
+    "new": "Новый",
+    "in_progress": "В работе",
+    "resolved": "Решён",
+    "closed": "Закрыт",
+    "reopened": "Переоткрыт",
+    "wont_fix": "Won't fix",
+}
+_BUG_STATUS_COLORS: dict[str, str] = {
+    "new": "#2563eb",
+    "in_progress": "#f59e0b",
+    "resolved": "#10b981",
+    "closed": "#64748b",
+    "reopened": "#dc2626",
+    "wont_fix": "#94a3b8",
+}
+_BUG_SEVERITY_LABELS: dict[str, str] = {
+    "blocker": "Blocker",
+    "critical": "Critical",
+    "major": "Major",
+    "minor": "Minor",
+    "trivial": "Trivial",
+}
+
+
+def _render_bug_field(label: str, value: str | None) -> str:
+    """Аккуратный блок «Название поля + preformatted тело». Пустое —
+    пропускаем, чтобы не захламлять отчёт «Actual result: —»."""
+    if not value or not value.strip():
+        return ""
+    return (
+        '<div class="bug-field">'
+        f'<div class="bug-field-label">{html.escape(label)}</div>'
+        f'<div class="bug-field-body">{html.escape(value)}</div>'
+        "</div>"
+    )
+
+
+def _render_bug_block(bug: "Bug") -> str:
+    """Развёрнутая карточка баг-репорта: заголовок, атрибуты, описание и
+    шаги воспроизведения. Вставляется внутрь `.case` под комментарием QA.
+    """
+    bug_ref = f"BUG-{str(bug.id).zfill(4)}"
+    status_label = _BUG_STATUS_LABELS.get(bug.status, bug.status)
+    status_color = _BUG_STATUS_COLORS.get(bug.status, "#64748b")
+    severity_label = _BUG_SEVERITY_LABELS.get(bug.severity, bug.severity)
+
+    header_bits: list[str] = [
+        f'<span class="bug-ref">{html.escape(bug_ref)}</span>',
+        f'<span class="badge" style="background:{status_color};">'
+        f"{html.escape(status_label)}</span>",
+        f'<span class="badge badge-outline" '
+        f'style="border-color:#334155;color:#334155;">'
+        f"severity: {html.escape(severity_label)}</span>",
+    ]
+    if bug.environment:
+        header_bits.append(
+            '<span class="bug-env">'
+            f"env: {html.escape(bug.environment)}"
+            "</span>"
+        )
+
+    fields_html = "".join(
+        [
+            _render_bug_field("Описание", bug.description),
+            _render_bug_field("Шаги воспроизведения", bug.steps_to_reproduce),
+            _render_bug_field("Фактический результат", bug.actual_result),
+            _render_bug_field("Ожидаемый результат", bug.expected_result),
+        ]
+    )
+
+    return (
+        '<div class="bug-card">'
+        '<div class="bug-head">' + "".join(header_bits) + "</div>"
+        f'<div class="bug-title">{html.escape(bug.title)}</div>'
+        f"{fields_html}"
+        "</div>"
+    )
+
+
+def _render_problem_case(
+    item: TestRunItem,
+    index: int,
+    bug: "Bug | None" = None,
+) -> str:
     """Одна карточка «проблемного» кейса — failed или blocked.
 
     Собираем максимально плотную информацию: заголовок, статус, приоритет,
-    исполнителя и время, связанный баг, тэги, комментарий QA. Всё
-    HTML-escape'им, потому что этот текст пишут пользователи, и в нём
-    легко могут оказаться `<`, `>`, `&` или ссылки.
+    исполнителя и время, связанный баг, тэги, комментарий QA. Если для
+    кейса передан подгруженный `bug` — под комментарием рендерим ещё и
+    его описание с шагами. Всё HTML-escape'им, потому что этот текст
+    пишут пользователи, и в нём легко могут оказаться `<`, `>`, `&`
+    или ссылки.
     """
     status_label, status_color = _item_status_meta(item.status)
     priority_label = _PRIORITY_LABELS.get(item.priority, item.priority)
@@ -194,17 +290,23 @@ def _render_problem_case(item: TestRunItem, index: int) -> str:
             "</div>"
         )
 
+    bug_html = _render_bug_block(bug) if bug is not None else ""
+
     return (
         f'<article class="case" style="border-left-color:{status_color};">'
         f'<header class="case-head">{"".join(header_bits)}</header>'
         f'<h3 class="case-title">{html.escape(item.title)}</h3>'
         f"{meta_html}"
         f"{comment_html}"
+        f"{bug_html}"
         "</article>"
     )
 
 
-def _render_problem_cases_section(items: list[TestRunItem]) -> str:
+def _render_problem_cases_section(
+    items: list[TestRunItem],
+    bugs_by_id: Mapping[int, "Bug"] | None = None,
+) -> str:
     """Секция с деталями failed + blocked. Пустая — не рендерится."""
     problem_items = [
         it
@@ -222,8 +324,14 @@ def _render_problem_cases_section(items: list[TestRunItem]) -> str:
     }
     problem_items.sort(key=lambda it: (order.get(it.status, 9), it.position))
 
+    bugs_map = bugs_by_id or {}
     cases_html = "".join(
-        _render_problem_case(it, index=it.position + 1) for it in problem_items
+        _render_problem_case(
+            it,
+            index=it.position + 1,
+            bug=bugs_map.get(it.linked_bug_id) if it.linked_bug_id else None,
+        )
+        for it in problem_items
     )
 
     failed_n = sum(
@@ -249,13 +357,22 @@ def _render_problem_cases_section(items: list[TestRunItem]) -> str:
 
 
 def render_run_report_html(
-    run: TestRun, *, include_case_details: bool = False
+    run: TestRun,
+    *,
+    include_case_details: bool = False,
+    bugs_by_id: Mapping[int, "Bug"] | None = None,
 ) -> str:
     """Возвращает готовый HTML-отчёт по прогону как строку.
 
     ``include_case_details`` управляет уровнем детализации: при `True`
     к сводке добавляется секция «Проблемные кейсы» (failed + blocked)
     с комментариями QA, исполнителями и ссылками на баги.
+
+    ``bugs_by_id`` — карта ``bug_id -> Bug`` для развёрнутых карточек
+    баг-репортов (описание, шаги воспроизведения, actual/expected). Если
+    None или пусто — блок бага для кейса не показывается, только его
+    номер в шапке. Загрузка багов остаётся на стороне вызывающего кода:
+    рендерер не должен ходить в БД, чтобы не тянуть async-контекст.
     """
     items = list(run.items)
     total = len(items)
@@ -332,7 +449,9 @@ def render_run_report_html(
     safe_name = html.escape(run.name)
 
     problem_cases_html = (
-        _render_problem_cases_section(items) if include_case_details else ""
+        _render_problem_cases_section(items, bugs_by_id)
+        if include_case_details
+        else ""
     )
 
     return f"""<!doctype html>
@@ -580,6 +699,57 @@ def render_run_report_html(
     padding: 1px 8px;
     font-size: 12px;
     font-weight: 500;
+  }}
+
+  /* Развёрнутый bug-репорт под кейсом */
+  .bug-card {{
+    margin-top: 10px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 12px 14px;
+  }}
+  .bug-head {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }}
+  .bug-ref {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #991b1b;
+    font-weight: 600;
+  }}
+  .bug-env {{
+    font-size: 12px;
+    color: #7f1d1d;
+    background: rgba(220, 38, 38, 0.08);
+    border-radius: 999px;
+    padding: 1px 8px;
+  }}
+  .bug-title {{
+    font-size: 14px;
+    font-weight: 600;
+    color: #7f1d1d;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }}
+  .bug-field {{ margin-top: 8px; }}
+  .bug-field-label {{
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #991b1b;
+    font-weight: 500;
+    margin-bottom: 2px;
+  }}
+  .bug-field-body {{
+    white-space: pre-wrap;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #4c0519;
   }}
 
   footer.foot {{
