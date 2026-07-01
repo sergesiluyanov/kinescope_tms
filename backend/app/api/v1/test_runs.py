@@ -65,8 +65,8 @@ async def _report_response(
     as_download: bool,
 ) -> Response:
     # На «своей» странице владельца (и в download-версии) отдаём отчёт
-    # с деталями по failed/blocked. Public share-эндпоинт использует
-    # `render_run_report_html` напрямую без этого флага.
+    # с деталями по failed / blocked / skipped. Public share-эндпоинт
+    # использует `render_run_report_html` напрямую без этого флага.
     #
     # Подтягиваем баги по всем linked_bug_id, чтобы в карточке проблемного
     # кейса развернуть описание и шаги воспроизведения. Одним IN-запросом,

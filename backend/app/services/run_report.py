@@ -13,7 +13,9 @@
   и сводка, чтобы не проливать наружу комментарии QA и связи с багами;
 * «скачать HTML» и внутренний просмотр (`?download=1` или явно
   `include_case_details=True`) добавляют секцию «Проблемные кейсы»
-  с деталями по каждому failed/blocked-айтему.
+  с деталями по каждому failed / blocked / skipped-айтему (у skipped
+  обычно есть комментарий с причиной пропуска — его тоже полезно
+  видеть в отчёте).
 """
 
 from __future__ import annotations
@@ -216,7 +218,7 @@ def _render_problem_case(
     index: int,
     bug: "Bug | None" = None,
 ) -> str:
-    """Одна карточка «проблемного» кейса — failed или blocked.
+    """Одна карточка «проблемного» кейса — failed / blocked / skipped.
 
     Собираем максимально плотную информацию: заголовок, статус, приоритет,
     исполнителя и время, связанный баг, тэги, комментарий QA. Если для
@@ -307,20 +309,31 @@ def _render_problem_cases_section(
     items: list[TestRunItem],
     bugs_by_id: Mapping[int, "Bug"] | None = None,
 ) -> str:
-    """Секция с деталями failed + blocked. Пустая — не рендерится."""
+    """Секция с деталями failed + blocked + skipped. Пустая — не рендерится.
+
+    Skipped тут наравне с провалами не случайно: если QA пропустил
+    кейс — обычно на это есть причина, и она должна быть в
+    комментарии. В отчёте пропущенные кейсы стоят после упавших и
+    заблокированных, чтобы сразу было видно основной ущерб.
+    """
     problem_items = [
         it
         for it in items
         if it.status
-        in (TestRunItemStatus.failed.value, TestRunItemStatus.blocked.value)
+        in (
+            TestRunItemStatus.failed.value,
+            TestRunItemStatus.blocked.value,
+            TestRunItemStatus.skipped.value,
+        )
     ]
     if not problem_items:
         return ""
 
-    # Сортируем: сначала failed, потом blocked, внутри — по position.
+    # Сортируем: сначала failed, потом blocked, потом skipped, внутри — по position.
     order = {
         TestRunItemStatus.failed.value: 0,
         TestRunItemStatus.blocked.value: 1,
+        TestRunItemStatus.skipped.value: 2,
     }
     problem_items.sort(key=lambda it: (order.get(it.status, 9), it.position))
 
@@ -340,11 +353,16 @@ def _render_problem_cases_section(
     blocked_n = sum(
         1 for it in problem_items if it.status == TestRunItemStatus.blocked.value
     )
+    skipped_n = sum(
+        1 for it in problem_items if it.status == TestRunItemStatus.skipped.value
+    )
     subtitle_parts = []
     if failed_n:
         subtitle_parts.append(f"упавших — {failed_n}")
     if blocked_n:
         subtitle_parts.append(f"заблокированных — {blocked_n}")
+    if skipped_n:
+        subtitle_parts.append(f"пропущенных — {skipped_n}")
     subtitle = " · ".join(subtitle_parts)
 
     return (
@@ -365,8 +383,8 @@ def render_run_report_html(
     """Возвращает готовый HTML-отчёт по прогону как строку.
 
     ``include_case_details`` управляет уровнем детализации: при `True`
-    к сводке добавляется секция «Проблемные кейсы» (failed + blocked)
-    с комментариями QA, исполнителями и ссылками на баги.
+    к сводке добавляется секция «Проблемные кейсы» (failed + blocked +
+    skipped) с комментариями QA, исполнителями и ссылками на баги.
 
     ``bugs_by_id`` — карта ``bug_id -> Bug`` для развёрнутых карточек
     баг-репортов (описание, шаги воспроизведения, actual/expected). Если
