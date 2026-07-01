@@ -24,4 +24,8 @@ RUN chmod +x ./scripts/entrypoint.sh
 
 EXPOSE 8000
 ENTRYPOINT ["./scripts/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers + --forwarded-allow-ips="*": доверяем X-Forwarded-* от
+# nginx фронта в docker-сети, чтобы request.url_for() возвращал внешний
+# URL (https://tms.kinescope.dev), а не внутренний http://api:8000.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+    "--proxy-headers", "--forwarded-allow-ips=*"]

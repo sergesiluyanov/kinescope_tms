@@ -60,6 +60,12 @@ export interface TestRunSummary {
 
 export interface TestRun extends TestRunSummary {
   items: TestRunItem[];
+  share_token?: string | null;
+}
+
+export interface TestRunShare {
+  share_token: string;
+  share_url: string;
 }
 
 export interface TestRunCreatePayload {

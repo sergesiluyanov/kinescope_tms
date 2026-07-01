@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 from sqlalchemy import select
@@ -199,3 +200,51 @@ async def apply_item_patch(
     refreshed = await get_item_by_id(db, item.id)
     assert refreshed is not None
     return refreshed
+
+
+# ----- Share-token для публичных HTML-отчётов -----
+
+
+async def ensure_share_token(db: AsyncSession, run: TestRun) -> TestRun:
+    """Возвращает прогон с проставленным `share_token`. Если токен уже
+    есть — не пересоздаёт (чтобы не сломать ранее разосланные ссылки).
+    Если нет — генерирует новый (32 байта, ~43 символа URL-safe base64).
+
+    Коллизии в 64-символьном пространстве практически невозможны, но на
+    всякий случай пробуем несколько раз, если попадём в дубликат."""
+    if run.share_token:
+        return run
+
+    for _ in range(5):
+        token = secrets.token_urlsafe(32)
+        existing = await db.execute(
+            select(TestRun.id).where(TestRun.share_token == token)
+        )
+        if existing.scalar_one_or_none() is None:
+            run.share_token = token
+            await db.commit()
+            refreshed = await get_by_id(db, run.id)
+            assert refreshed is not None
+            return refreshed
+    raise RuntimeError("Не удалось сгенерировать уникальный share_token")
+
+
+async def clear_share_token(db: AsyncSession, run: TestRun) -> TestRun:
+    """Отзывает публичную ссылку: обнуляет share_token."""
+    if run.share_token is None:
+        return run
+    run.share_token = None
+    await db.commit()
+    refreshed = await get_by_id(db, run.id)
+    assert refreshed is not None
+    return refreshed
+
+
+async def get_by_share_token(db: AsyncSession, token: str) -> TestRun | None:
+    stmt = (
+        select(TestRun)
+        .where(TestRun.share_token == token)
+        .options(*_run_with_relations())
+    )
+    result = await db.execute(stmt)
+    return result.unique().scalar_one_or_none()

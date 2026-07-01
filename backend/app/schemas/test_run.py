@@ -113,3 +113,15 @@ class TestRunResponse(BaseModel):
     updated_at: datetime
     items: list[TestRunItemResponse]
     stats: TestRunStats
+    # Публичный токен для share-ссылки на HTML-отчёт. `None`, пока владелец
+    # не активировал шаринг. Отдаётся только в полном ответе — в списках
+    # (TestRunSummary) намеренно скрыт, чтобы не «прошуршать» токен через
+    # эндпоинты, где он не нужен.
+    share_token: str | None = None
+
+
+class TestRunShareResponse(BaseModel):
+    """Ответ на POST /test-runs/{id}/share — публичная ссылка."""
+
+    share_token: str
+    share_url: str

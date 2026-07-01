@@ -3,7 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { createBug } from '@/api/bugs';
-import { getTestRun, updateTestRun, updateTestRunItem } from '@/api/testRuns';
+import {
+  createTestRunShareLink,
+  fetchTestRunReport,
+  getTestRun,
+  revokeTestRunShareLink,
+  updateTestRun,
+  updateTestRunItem,
+} from '@/api/testRuns';
 import { listUsers } from '@/api/users';
 import BugFormDialog from '@/components/BugFormDialog';
 import { Badge } from '@/components/bugBadges';
@@ -71,6 +78,9 @@ export default function TestRunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [bugDialogOpen, setBugDialogOpen] = useState(false);
   const [bugDialogError, setBugDialogError] = useState<string | null>(null);
+  // Тултипы «скопировано», «ссылка отозвана» — исчезают через ~2 сек,
+  // без внешних тост-либ.
+  const [shareToast, setShareToast] = useState<string | null>(null);
 
   const items = useMemo(() => runQuery.data?.items ?? [], [runQuery.data]);
 
@@ -114,6 +124,39 @@ export default function TestRunDetailPage() {
       });
     },
     onError: (err) => setError(extractApiError(err, 'Не удалось обновить прогон')),
+  });
+
+  const downloadReportMutation = useMutation({
+    mutationFn: () => fetchTestRunReport(runId),
+    onSuccess: (blob) => {
+      const filename = buildReportFilename(runQuery.data);
+      triggerBlobDownload(blob, filename);
+    },
+    onError: (err) =>
+      setError(extractApiError(err, 'Не удалось скачать отчёт')),
+  });
+
+  const shareLinkMutation = useMutation({
+    mutationFn: () => createTestRunShareLink(runId),
+    onSuccess: async (data) => {
+      await copyToClipboard(data.share_url);
+      setShareToast('Ссылка скопирована');
+      window.setTimeout(() => setShareToast(null), 2200);
+      await queryClient.invalidateQueries({ queryKey: ['test-run', runId] });
+    },
+    onError: (err) =>
+      setError(extractApiError(err, 'Не удалось создать ссылку')),
+  });
+
+  const revokeShareMutation = useMutation({
+    mutationFn: () => revokeTestRunShareLink(runId),
+    onSuccess: async () => {
+      setShareToast('Ссылка отозвана');
+      window.setTimeout(() => setShareToast(null), 2200);
+      await queryClient.invalidateQueries({ queryKey: ['test-run', runId] });
+    },
+    onError: (err) =>
+      setError(extractApiError(err, 'Не удалось отозвать ссылку')),
   });
 
   const createBugMutation = useMutation({
@@ -217,7 +260,63 @@ export default function TestRunDetailPage() {
             <p className="mt-1 text-sm text-slate-500">{run.description}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                downloadReportMutation.mutate();
+              }}
+              disabled={downloadReportMutation.isPending}
+              title="Скачать HTML-отчёт"
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {downloadReportMutation.isPending ? 'Готовим…' : '⬇ HTML'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                shareLinkMutation.mutate();
+              }}
+              disabled={shareLinkMutation.isPending}
+              title={
+                run.share_token
+                  ? 'Копировать публичную ссылку на отчёт'
+                  : 'Создать публичную ссылку и скопировать её'
+              }
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              🔗 {run.share_token ? 'Копировать ссылку' : 'Поделиться'}
+            </button>
+            {run.share_token && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      'Отозвать публичную ссылку? Все ранее разосланные ссылки перестанут работать.',
+                    )
+                  ) {
+                    return;
+                  }
+                  setError(null);
+                  revokeShareMutation.mutate();
+                }}
+                disabled={revokeShareMutation.isPending}
+                title="Отозвать публичную ссылку"
+                className="rounded-lg border border-red-200 px-2 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            )}
+            {shareToast && (
+              <span className="absolute -bottom-6 left-0 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-xs text-white">
+                {shareToast}
+              </span>
+            )}
+          </div>
           {run.status === 'draft' && canExecute && (
             <button
               type="button"
@@ -507,6 +606,52 @@ interface ItemRowProps {
   item: TestRunItem;
   active: boolean;
   onClick: () => void;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  // Пытаемся через современный API. Если браузер не даёт (например,
+  // http без TLS), падаем на legacy `execCommand('copy')`.
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    /* fall through to legacy */
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.top = '-1000px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    ta.remove();
+  }
+}
+
+function buildReportFilename(run?: { id: number; name: string } | null): string {
+  if (!run) return 'test-run.html';
+  const slug = run.name
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `${slug || 'test-run'}-${run.id}.html`;
 }
 
 function ItemRow({ item, active, onClick }: ItemRowProps) {

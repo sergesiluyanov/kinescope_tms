@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -23,12 +24,49 @@ from app.schemas.test_run import (
     TestRunItemResponse,
     TestRunItemUpdateRequest,
     TestRunResponse,
+    TestRunShareResponse,
     TestRunStats,
     TestRunSummary,
     TestRunUpdateRequest,
 )
+from app.services.run_report import render_run_report_html
 
 router = APIRouter(tags=["test-runs"])
+
+
+def _slugify_for_filename(text: str, fallback: str = "test-run") -> str:
+    """Простейший slug для Content-Disposition — оставляем ASCII-безопасное,
+    остальное превращаем в дефис. HTTP-заголовки не любят кириллицу,
+    поэтому не хочется прокидывать оригинальное название целиком."""
+    safe = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in text
+    )
+    safe = "-".join(part for part in safe.split("-") if part)
+    return safe[:80] or fallback
+
+
+def _report_response(
+    run: TestRun,
+    *,
+    as_download: bool,
+) -> Response:
+    html_body = render_run_report_html(run)
+    headers: dict[str, str] = {}
+    if as_download:
+        slug = _slugify_for_filename(run.name, fallback=f"test-run-{run.id}")
+        filename = f"{slug or f'test-run-{run.id}'}-{run.id}.html"
+        # Оригинальное название (в т.ч. с кириллицей) прокидываем через
+        # RFC 5987 filename* — оно нормально понимается всеми браузерами.
+        from urllib.parse import quote
+        headers["Content-Disposition"] = (
+            f'attachment; filename="{filename}"; '
+            f"filename*=UTF-8''{quote(run.name)}.html"
+        )
+    return Response(
+        content=html_body,
+        media_type="text/html; charset=utf-8",
+        headers=headers,
+    )
 
 
 def _stats_from_items(items: list[TestRunItem]) -> TestRunStats:
@@ -78,6 +116,7 @@ def _to_response(run: TestRun) -> TestRunResponse:
         updated_at=run.updated_at,
         items=[TestRunItemResponse.model_validate(it) for it in items],
         stats=_stats_from_items(items),
+        share_token=run.share_token,
     )
 
 
@@ -266,3 +305,81 @@ async def update_test_run_item(
         )
 
     return TestRunItemResponse.model_validate(item)
+
+
+# ---------------------------------------------------------------------------
+# HTML-отчёт по прогону
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/test-runs/{run_id}/report.html",
+    response_class=Response,
+    responses={200: {"content": {"text/html": {}}}},
+)
+async def get_test_run_report(
+    run_id: int,
+    download: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Response:
+    """HTML-отчёт по прогону для авторизованных пользователей.
+
+    `download=1` — прицепит `Content-Disposition: attachment` и файл
+    сохранится с именем прогона (`test-run-<slug>-<id>.html`), иначе
+    отображается прямо в браузере (полезно для «Открыть в новой вкладке»
+    и для превью перед пересылкой).
+    """
+    run = await run_crud.get_by_id(db, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Прогон не найден")
+    return _report_response(run, as_download=download)
+
+
+@router.post(
+    "/test-runs/{run_id}/share",
+    response_model=TestRunShareResponse,
+)
+async def create_test_run_share_link(
+    run_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_qa_or_higher()),
+) -> TestRunShareResponse:
+    """Создать или вернуть публичную share-ссылку на HTML-отчёт.
+
+    Токен один на прогон и не меняется, пока его явно не удалили
+    (`DELETE /test-runs/{id}/share`). Так уже разосланные ссылки
+    не «отваливаются» при повторных нажатиях кнопки.
+    """
+    run = await run_crud.get_by_id(db, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Прогон не найден")
+    run = await run_crud.ensure_share_token(db, run)
+    assert run.share_token is not None
+
+    # `url_for` разрешает name роут-функции обратно в URL с учётом всех
+    # префиксов приложения (/api, /v1, /public), поэтому ссылка будет
+    # корректной и после переезда на другой домен/порт.
+    share_url = str(
+        request.url_for(
+            "public_test_run_report", share_token=run.share_token
+        )
+    )
+    return TestRunShareResponse(share_token=run.share_token, share_url=share_url)
+
+
+@router.delete(
+    "/test-runs/{run_id}/share",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_test_run_share_link(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_qa_or_higher()),
+) -> None:
+    """Отозвать публичную ссылку — прежний токен перестанет работать."""
+    run = await run_crud.get_by_id(db, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Прогон не найден")
+    await run_crud.clear_share_token(db, run)

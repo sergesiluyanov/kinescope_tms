@@ -63,6 +63,14 @@ class TestRun(IntPkMixin, TimestampMixin, Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Опциональный публичный токен для share-ссылки на HTML-отчёт.
+    # Пока `None` — публичный доступ невозможен. После вызова
+    # `POST /test-runs/{id}/share` создаётся 32-байтный token_urlsafe.
+    share_token: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+    )
 
     created_by: Mapped["User | None"] = relationship(
         "User",
