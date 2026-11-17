@@ -7,11 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_qa_or_higher
 from app.core.database import get_db
+from app.crud import project as project_crud
 from app.crud import section as section_crud
 from app.crud import test_case as test_case_crud
+from app.models.section import Section
 from app.models.user import User
 from app.schemas.test_case import (
     TestCaseCreateRequest,
+    TestCaseExport,
     TestCaseLocator,
     TestCaseResponse,
     TestCaseSummary,
@@ -19,6 +22,50 @@ from app.schemas.test_case import (
 )
 
 router = APIRouter(tags=["test-cases"])
+
+
+def _section_path(section: Section, by_id: dict[int, Section]) -> list[str]:
+    """Названия разделов от корня до `section` включительно."""
+    path: list[str] = []
+    seen: set[int] = set()
+    current: Section | None = section
+    while current is not None and current.id not in seen:
+        seen.add(current.id)
+        path.append(current.name)
+        current = by_id.get(current.parent_id) if current.parent_id else None
+    return list(reversed(path))
+
+
+@router.get(
+    "/projects/{project_id}/test-cases",
+    response_model=list[TestCaseExport],
+)
+async def export_project_test_cases(
+    project_id: int,
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> list[TestCaseExport]:
+    """Полная выгрузка тест-кейсов проекта — со steps и путём раздела."""
+    project = await project_crud.get_by_id(db, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Проект не найден")
+
+    sections = await section_crud.list_for_project(db, project_id)
+    by_id = {s.id: s for s in sections}
+
+    rows = await test_case_crud.list_for_project(
+        db, project_id, include_archived=include_archived
+    )
+    return [
+        TestCaseExport(
+            **TestCaseResponse.model_validate(case).model_dump(),
+            project_id=project_id,
+            section_name=section.name,
+            section_path=_section_path(section, by_id),
+        )
+        for case, section in rows
+    ]
 
 
 @router.get(

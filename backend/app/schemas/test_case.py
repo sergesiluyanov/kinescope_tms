@@ -64,6 +64,18 @@ class TestCaseResponse(BaseModel):
     updated_at: datetime
 
 
+class TestCaseExport(TestCaseResponse):
+    """Кейс для выгрузки по проекту: плюс координаты раздела.
+
+    `section_path` — названия разделов от корня до текущего, чтобы выгрузку
+    можно было читать и раскладывать без отдельного запроса дерева.
+    """
+
+    project_id: int
+    section_name: str
+    section_path: list[str]
+
+
 class TestCaseLocator(BaseModel):
     """Координаты тест-кейса в иерархии — для коротких deep-link URL."""
 

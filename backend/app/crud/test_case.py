@@ -7,7 +7,31 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.section import Section
 from app.models.test_case import TestCase, TestCaseStatus
+
+
+async def list_for_project(
+    db: AsyncSession,
+    project_id: int,
+    *,
+    include_archived: bool = False,
+) -> list[tuple[TestCase, Section]]:
+    """Все кейсы проекта одним запросом — вместе с разделом каждого кейса.
+
+    Нужен для полной выгрузки: обходить разделы по одному и дёргать
+    `/test-cases/{id}` за деталями слишком дорого.
+    """
+    stmt = (
+        select(TestCase, Section)
+        .join(Section, Section.id == TestCase.section_id)
+        .where(Section.project_id == project_id)
+        .order_by(Section.position, Section.id, TestCase.id)
+    )
+    if not include_archived:
+        stmt = stmt.where(TestCase.status == TestCaseStatus.active.value)
+    result = await db.execute(stmt)
+    return [(case, section) for case, section in result.all()]
 
 
 async def list_for_section(

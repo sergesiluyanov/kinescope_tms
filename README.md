@@ -62,6 +62,33 @@ make up        # поднимет postgres + api + web (Vite dev)
 В dev-режиме фронт работает через Vite-dev-сервер с горячей перезагрузкой,
 проксируя `/api/*` на сервис `api` в той же docker-сети.
 
+## Выгрузка тест-кейсов по API
+
+Все кейсы проекта отдаются одним запросом — со steps, тегами и путём раздела.
+
+```bash
+BASE=http://localhost:8000
+
+TOKEN=$(curl -s -X POST "$BASE/api/v1/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"qa@kinescope.io","password":"..."}' | jq -r .access_token)
+
+curl -s "$BASE/api/v1/projects/1/test-cases" \
+  -H "Authorization: Bearer $TOKEN" > cases.json
+```
+
+Параметры:
+
+- `include_archived=true` — добавить архивные кейсы (по умолчанию только активные).
+
+В каждом элементе — обычный `TestCaseResponse` (`steps`, `preconditions`,
+`priority`, `status`, `tags`) плюс `project_id`, `section_name` и
+`section_path` (названия разделов от корня до кейса). Кейсы отсортированы
+по разделам в порядке дерева, внутри раздела — по `id`.
+
+Остальные эндпоинты по кейсам (список по разделу, один кейс, создание,
+правка) — в Swagger на `/docs`.
+
 ## Запуск на сервере (prod)
 
 В prod-режиме фронт собирается в статику и отдаётся через **nginx**,
