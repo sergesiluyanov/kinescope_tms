@@ -10,10 +10,23 @@ from app.models.test_case import TestCasePriority, TestCaseStatus
 
 
 class TestStep(BaseModel):
-    """Шаг тест-кейса. Хранится внутри JSONB-поля steps."""
+    """Шаг тест-кейса для ввода (create/update). Хранится в JSONB-поле steps."""
 
     action: str = Field(min_length=1, max_length=2_000)
     expected: str = Field(min_length=1, max_length=2_000)
+
+
+class TestStepOut(BaseModel):
+    """Шаг в ответах API.
+
+    Без min_length: исторические кейсы содержат шаги с пустым `action`/
+    `expected`, и такие данные нельзя отбраковывать на выдаче — иначе один
+    кривой кейс роняет весь ответ (`GET /test-cases/{id}` и выгрузку проекта).
+    Валидация непустоты остаётся только на вводе (`TestStep`).
+    """
+
+    action: str = ""
+    expected: str = ""
 
 
 class TestCaseCreateRequest(BaseModel):
@@ -55,7 +68,7 @@ class TestCaseResponse(BaseModel):
     section_id: int
     title: str
     preconditions: str | None
-    steps: list[TestStep]
+    steps: list[TestStepOut]
     priority: TestCasePriority
     status: TestCaseStatus
     tags: list[str]
